@@ -87,6 +87,15 @@ export interface GameDefinition<TState = unknown, TAction = unknown, TConfig = u
    */
   onPlayerLeft?(state: TState, playerId: string): ActionResult<TState> | null;
 
+  /**
+   * Opt out of optimistic version locking for actions. By default an action
+   * sent with an older clientStateVersion gets SYNC_REQUIRED. Games where
+   * many players act at the same moment (votes, night actions) and whose
+   * validateAction always checks against the CURRENT authoritative state
+   * can set this so simultaneous actions don't bounce off each other.
+   */
+  acceptsStaleClientVersion?: boolean;
+
   /** Whether this player may send room chat right now. Absent = always allowed. */
   canSendMessage?(state: TState, playerId: string, context: ChatAuthorizationContext): boolean;
 }

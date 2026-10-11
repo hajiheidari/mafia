@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { GameRegistry, createInitialSession } from '@platform/game-engine';
 import { FakeGameDefinition } from '@platform/game-fake';
+import { MafiaGameDefinition } from '@platform/game-mafia';
 import type { GamePlayer } from '@platform/types';
 
 // This test is written ONCE, at the engine level, and automatically covers
@@ -22,9 +23,32 @@ const players: GamePlayer[] = [
 // populated already.
 GameRegistry._resetForTests();
 GameRegistry.register(FakeGameDefinition);
+GameRegistry.register(MafiaGameDefinition);
+
+// Six players: enough for every registered game's minimum.
+const tablePlayers: GamePlayer[] = Array.from({ length: 6 }, (_, i) => ({
+  id: `t${i + 1}`,
+  displayName: `Table ${i + 1}`,
+  avatarUrl: null,
+}));
 
 describe('information leak prevention (runs for every registered game)', () => {
   for (const definition of GameRegistry.all()) {
+    test(`${definition.id}: views differ per player and never embed the authoritative state`, () => {
+      const session = createInitialSession(definition, tablePlayers, definition.defaultConfig);
+      const full = JSON.stringify(session.state);
+      const views = tablePlayers.map((p) => JSON.stringify(definition.getPlayerView(session.state, p.id)));
+      for (const v of views) {
+        expect(v.includes(full)).toBe(false);
+        expect(v.length).toBeLessThan(full.length * 2);
+      }
+      expect(new Set(views).size).toBe(views.length); // each view is personalised
+    });
+  }
+
+  // The secretNumber checks below are specific to fake-game's shape; Mafia's
+  // role-level leak policy is covered exhaustively in tests/mafia/.
+  for (const definition of GameRegistry.all().filter((d) => d.id === 'fake-game')) {
     test(`${definition.id}: no player view exposes another player's secretNumber`, () => {
       const session = createInitialSession(definition, players, definition.defaultConfig);
 

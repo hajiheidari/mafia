@@ -54,7 +54,7 @@ export async function processAction<TState, TAction>(
   const cached = await idempotency.get(envelope.actionId);
   if (cached) return cached;
 
-  if (envelope.clientStateVersion < session.stateVersion) {
+  if (!definition.acceptsStaleClientVersion && envelope.clientStateVersion < session.stateVersion) {
     const outcome: ActionOutcome = { kind: 'SYNC_REQUIRED', session };
     await idempotency.set(envelope.actionId, outcome);
     return outcome;

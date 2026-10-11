@@ -36,6 +36,10 @@ export function createMafiaDefinition(
     // Defaults depend on the player count, so they are filled in by
     // createInitialState; the host only sends overrides.
     defaultConfig: {},
+    // Players act simultaneously (ready, night actions, votes) and every
+    // action is validated against the current state, so a client that is
+    // one broadcast behind must not be bounced with SYNC_REQUIRED.
+    acceptsStaleClientVersion: true,
 
     createInitialState(players: GamePlayer[], configInput: MafiaConfigInput): MafiaState {
       const config = resolveConfig(configInput, players.length);

@@ -50,18 +50,18 @@ export interface PhaseSchedulerCallbacks {
 
 export interface PhaseSchedulerOptions {
   now?: () => number;
-  getDefinition?: (gameId: string) => GameDefinition<any, any, any> | undefined;
+  getDefinition?: (gameId: string) => GameDefinition | undefined;
 }
 
 /** True once the game reports a result — used to set the session's endedAt. */
-export function isGameFinished(definition: GameDefinition<any, any, any>, state: unknown): boolean {
+export function isGameFinished(definition: GameDefinition, state: unknown): boolean {
   return definition.checkWinCondition(state) !== null;
 }
 
 export class PhaseScheduler {
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
   private now: () => number;
-  private getDefinition: (gameId: string) => GameDefinition<any, any, any> | undefined;
+  private getDefinition: (gameId: string) => GameDefinition | undefined;
 
   constructor(
     private storage: PhaseSchedulerStorage,
@@ -69,7 +69,7 @@ export class PhaseScheduler {
     options: PhaseSchedulerOptions = {},
   ) {
     this.now = options.now ?? Date.now;
-    this.getDefinition = options.getDefinition ?? ((id) => GameRegistry.get(id));
+    this.getDefinition = options.getDefinition ?? ((id) => GameRegistry.get(id) as GameDefinition | undefined);
   }
 
   /**

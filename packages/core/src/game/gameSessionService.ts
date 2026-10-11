@@ -68,6 +68,7 @@ export interface GameTransitionResult {
 }
 
 const PLAYER_LEFT_CAS_ATTEMPTS = 5;
+const ACTION_CAS_ATTEMPTS = 5;
 
 /**
  * Bridges the transport-agnostic Game Engine (packages/game-engine) to
@@ -165,67 +166,91 @@ export class GameSessionService {
       throw new PermissionDeniedError('SEND_GAME_ACTION');
     }
 
-    const sessionRow = await getActiveSession(roomId);
-    if (!sessionRow) throw new NoActiveSessionError();
+    // One action at a time per room in this process; the CAS below still
+    // guards against the phase timer / other processes.
+    return this.withRoomLock(roomId, () => this.applyActionLocked(roomId, userId, envelope));
+  }
 
-    const definition = GameRegistry.get(sessionRow.gameId);
-    if (!definition) throw new GameNotFoundError();
+  private async applyActionLocked(roomId: string, userId: string, envelope: ActionEnvelope) {
+    for (let attempt = 0; attempt < ACTION_CAS_ATTEMPTS; attempt++) {
+      const sessionRow = await getActiveSession(roomId);
+      if (!sessionRow) throw new NoActiveSessionError();
 
-    const session: GameSessionState = {
-      gameId: sessionRow.gameId,
-      stateVersion: sessionRow.stateVersion,
-      state: sessionRow.state,
-    };
+      const definition = GameRegistry.get(sessionRow.gameId);
+      if (!definition) throw new GameNotFoundError();
 
-    const outcome = await processAction(definition, session, userId, envelope, this.idempotency);
-
-    if (outcome.kind !== 'APPLIED') {
-      return { outcome };
-    }
-
-    // Idempotent replay of an action that was already applied earlier: the
-    // cached outcome's version no longer lines up with the stored one. Never
-    // write the cached state back — just re-send everyone the CURRENT views.
-    if (outcome.session.stateVersion !== sessionRow.stateVersion + 1) {
-      const replay: ActionOutcome = { kind: 'APPLIED', session, events: [] };
-      return {
-        outcome: replay,
-        playerViews: await this.buildPlayerViews(roomId, definition, sessionRow.state),
-        sessionId: sessionRow.id,
+      const session: GameSessionState = {
         gameId: sessionRow.gameId,
-        finished: false,
+        stateVersion: sessionRow.stateVersion,
+        state: sessionRow.state,
       };
-    }
 
-    // CAS so an action can never overwrite a phase transition (timer) or a
-    // leave that landed between our read and this write.
-    const written = await casApplyPhaseTransition({
-      sessionId: sessionRow.id,
-      expectedVersion: sessionRow.stateVersion,
-      nextVersion: outcome.session.stateVersion,
-      nextState: outcome.session.state,
-    });
-    if (!written) {
-      const current = await getActiveSession(roomId);
-      const syncOutcome: ActionOutcome = {
-        kind: 'SYNC_REQUIRED',
-        session: {
+      // A retry after a lost CAS must re-validate against the fresh state,
+      // not replay the outcome cached by the losing attempt.
+      const store: IdempotencyStore =
+        attempt === 0 ? this.idempotency : { get: async () => undefined, set: (id, o) => this.idempotency.set(id, o) };
+      const outcome = await processAction(definition, session, userId, envelope, store);
+
+      if (outcome.kind !== 'APPLIED') {
+        return { outcome };
+      }
+
+      // Idempotent replay of an action that was already applied earlier: the
+      // cached outcome's version no longer lines up with the stored one. Never
+      // write the cached state back — just re-send everyone the CURRENT views.
+      if (outcome.session.stateVersion !== sessionRow.stateVersion + 1) {
+        const replay: ActionOutcome = { kind: 'APPLIED', session, events: [] };
+        return {
+          outcome: replay,
+          playerViews: await this.buildPlayerViews(roomId, definition, sessionRow.state),
+          sessionId: sessionRow.id,
           gameId: sessionRow.gameId,
-          stateVersion: current?.stateVersion ?? sessionRow.stateVersion,
-          state: null, // never needed by callers; avoid caching the authoritative state again
-        },
-      };
-      await this.idempotency.set(envelope.actionId, syncOutcome);
-      return { outcome: syncOutcome };
+          finished: false,
+        };
+      }
+
+      // CAS so an action can never overwrite a phase transition (timer) or a
+      // leave that landed between our read and this write.
+      const written = await casApplyPhaseTransition({
+        sessionId: sessionRow.id,
+        expectedVersion: sessionRow.stateVersion,
+        nextVersion: outcome.session.stateVersion,
+        nextState: outcome.session.state,
+      });
+      if (!written) continue; // lost the race → reload and re-run against the new state
+
+      await insertGameEvents(sessionRow.id, toGameEventRows(outcome.events));
+
+      const finished = isGameFinished(definition, outcome.session.state);
+      if (finished) await endSession(sessionRow.id);
+
+      const playerViews = await this.buildPlayerViews(roomId, definition, outcome.session.state);
+
+      return { outcome, playerViews, sessionId: sessionRow.id, gameId: sessionRow.gameId, finished };
     }
-    await insertGameEvents(sessionRow.id, toGameEventRows(outcome.events));
 
-    const finished = isGameFinished(definition, outcome.session.state);
-    if (finished) await endSession(sessionRow.id);
+    // Persistent contention: tell the client to resync rather than guess.
+    const current = await getActiveSession(roomId);
+    const syncOutcome: ActionOutcome = {
+      kind: 'SYNC_REQUIRED',
+      session: { gameId: current?.gameId ?? '', stateVersion: current?.stateVersion ?? 0, state: null },
+    };
+    await this.idempotency.set(envelope.actionId, syncOutcome);
+    return { outcome: syncOutcome };
+  }
 
-    const playerViews = await this.buildPlayerViews(roomId, definition, outcome.session.state);
+  private roomLocks = new Map<string, Promise<unknown>>();
 
-    return { outcome, playerViews, sessionId: sessionRow.id, gameId: sessionRow.gameId, finished };
+  private async withRoomLock<T>(roomId: string, fn: () => Promise<T>): Promise<T> {
+    const previous = this.roomLocks.get(roomId) ?? Promise.resolve();
+    const run = previous.then(fn, fn);
+    const settled = run.catch(() => undefined);
+    this.roomLocks.set(roomId, settled);
+    try {
+      return await run;
+    } finally {
+      if (this.roomLocks.get(roomId) === settled) this.roomLocks.delete(roomId);
+    }
   }
 
   private async buildPlayerViews(
@@ -246,6 +271,10 @@ export class GameSessionService {
    * hook is re-run against the fresh state so the leave is never dropped.
    */
   async notifyPlayerLeft(roomId: string, playerId: string): Promise<GameTransitionResult | null> {
+    return this.withRoomLock(roomId, () => this.notifyPlayerLeftLocked(roomId, playerId));
+  }
+
+  private async notifyPlayerLeftLocked(roomId: string, playerId: string): Promise<GameTransitionResult | null> {
     for (let attempt = 0; attempt < PLAYER_LEFT_CAS_ATTEMPTS; attempt++) {
       const sessionRow = await getActiveSession(roomId);
       if (!sessionRow) return null;

@@ -5,10 +5,11 @@ import type { ClientToServerEvents, ServerToClientEvents } from '@platform/types
 export interface TestContext {
   baseUrl: string;
   close: () => Promise<void>;
+  io: Awaited<ReturnType<typeof createServer>>['io'];
 }
 
 export async function bootTestServer(): Promise<TestContext> {
-  const { app } = await createServer();
+  const { app, io } = await createServer();
   await app.listen({ port: 0, host: '127.0.0.1' });
   const address = app.server.address();
   if (!address || typeof address === 'string') throw new Error('failed to bind test server');
@@ -16,6 +17,7 @@ export async function bootTestServer(): Promise<TestContext> {
 
   return {
     baseUrl,
+    io,
     close: async () => {
       await app.close();
     },

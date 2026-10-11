@@ -12,7 +12,11 @@ import {
 } from '@platform/core';
 import { PhaseScheduler } from '@platform/game-engine';
 import type { Server } from 'socket.io';
+import type { ClientToServerEvents, ServerToClientEvents } from '@platform/types';
+import type { SocketData } from './realtime/socketAuth.js';
 import { broadcastGameTransition } from './realtime/broadcastGameTransition.js';
+
+type AppServer = Server<ClientToServerEvents, ServerToClientEvents, object, SocketData>;
 
 // Constructed lazily (function, not top-level `new Redis()`) for the same
 // reason packages/db's pool is lazy — avoid capturing env vars before
@@ -63,9 +67,9 @@ export function getRateLimiter() {
 
 // One scheduler per Socket.IO server (tests boot several servers in one
 // process; each needs timers that broadcast through ITS OWN io).
-const _schedulers = new WeakMap<Server<any, any, any, any>, PhaseScheduler>();
+const _schedulers = new WeakMap<AppServer, PhaseScheduler>();
 
-export function getPhaseScheduler(io: Server<any, any, any, any>): PhaseScheduler {
+export function getPhaseScheduler(io: AppServer): PhaseScheduler {
   let scheduler = _schedulers.get(io);
   if (!scheduler) {
     scheduler = new PhaseScheduler(createDbPhaseSchedulerStorage(), {

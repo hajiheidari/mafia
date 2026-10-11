@@ -98,4 +98,15 @@ describe('game engine action pipeline', () => {
     );
     expect(outcome.kind).toBe('REJECTED');
   });
+
+  test('acceptsStaleClientVersion (opt-in) lets a one-broadcast-behind client act; default still requires a sync', async () => {
+    const session = { ...createInitialSession(FakeGameDefinition, players, FakeGameDefinition.defaultConfig), stateVersion: 3 };
+    const env = { actionId: 'stale-1', clientStateVersion: 2, action: { type: 'PING' } as const };
+    expect((await processAction(FakeGameDefinition, session, 'p1', env, idempotency)).kind).toBe('SYNC_REQUIRED');
+
+    const lenient = { ...FakeGameDefinition, acceptsStaleClientVersion: true };
+    const outcome = await processAction(lenient, session, 'p1', { ...env, actionId: 'stale-2' }, idempotency);
+    expect(outcome.kind).toBe('APPLIED');
+    if (outcome.kind === 'APPLIED') expect(outcome.session.stateVersion).toBe(4);
+  });
 });
