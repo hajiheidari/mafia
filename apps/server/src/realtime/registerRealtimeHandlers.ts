@@ -23,7 +23,9 @@ import {
   type GameSessionService,
   type RateLimiter,
 } from '@platform/core';
+import type { PhaseScheduler } from '@platform/game-engine';
 import type { SocketData } from './socketAuth.js';
+import { notifyGameOfPlayerLeft } from './gameLifecycle.js';
 import { trackSocketConnected, trackSocketDisconnected, hasActiveSocket } from './socketPresenceTracker.js';
 
 type AppSocket = Socket<ClientToServerEvents, ServerToClientEvents, object, SocketData>;
@@ -80,9 +82,10 @@ export function registerRealtimeHandlers(
     roomService: RoomService;
     gameSessionService: GameSessionService;
     rateLimiter: RateLimiter;
+    scheduler: PhaseScheduler;
   },
 ) {
-  const { roomService, gameSessionService, rateLimiter } = deps;
+  const { roomService, gameSessionService, rateLimiter, scheduler } = deps;
 
   /**
    * Shared by BOTH the automatic-reconnect-on-connect path and the
@@ -221,6 +224,11 @@ export function registerRealtimeHandlers(
         if (!result.roomClosed && result.room) {
           io.to(roomName).emit('PLAYER_LEFT', { roomId, userId, room: result.room });
         }
+        await notifyGameOfPlayerLeft(io, { gameSessionService, scheduler }, {
+          roomId,
+          userId,
+          roomClosed: result.roomClosed,
+        });
       } catch (err) {
         console.error('ROOM_LEAVE error', err);
         sendError(socket, 'INVALID_ACTION', 'خطا در خروج از اتاق');
@@ -254,6 +262,17 @@ export function registerRealtimeHandlers(
 
         const role = await roomService.getMemberRole(roomId, userId);
         if (!role) return sendError(socket, 'NOT_A_MEMBER', 'شما عضو این اتاق نیستید');
+
+        // Game-level gate (e.g. eliminated players can't talk). Checked
+        // BEFORE anything is stored or broadcast.
+        const room = await roomService.getRoomById(roomId);
+        const mayChat = await gameSessionService.checkChatPermission(
+          roomId,
+          userId,
+          role,
+          room?.status ?? 'WAITING',
+        );
+        if (!mayChat) return sendError(socket, 'NOT_AUTHORIZED', 'در این مرحله اجازه‌ی ارسال پیام ندارید');
 
         const trimmed = (text ?? '').trim();
         if (trimmed.length === 0) return; // silently ignore empty sends
@@ -298,7 +317,7 @@ export function registerRealtimeHandlers(
         );
         if (!allowed) return sendError(socket, 'RATE_LIMITED', 'تعداد اکشن‌ها بیش از حد مجاز است', actionId);
 
-        const { outcome, playerViews } = await gameSessionService.applyAction(roomId, userId, {
+        const { outcome, playerViews, sessionId, gameId, finished } = await gameSessionService.applyAction(roomId, userId, {
           actionId,
           clientStateVersion,
           action,
@@ -318,7 +337,9 @@ export function registerRealtimeHandlers(
         // automated leak-detection tests in tests/game-engine/. Every
         // socket currently in the room (including multiple tabs for the
         // same user) gets its own personalized emit here.
-        io.to(socketRoomName(roomId)).emit('GAME_EVENT', { roomId, events: outcome.events });
+        if (outcome.events.length > 0) {
+          io.to(socketRoomName(roomId)).emit('GAME_EVENT', { roomId, events: outcome.events });
+        }
 
         if (playerViews) {
           const socketsInRoom = await io.in(socketRoomName(roomId)).fetchSockets();
@@ -332,6 +353,21 @@ export function registerRealtimeHandlers(
               });
             }
           }
+        }
+
+        // Re-arm the phase timer from the new state. This is also how
+        // "everyone has acted, end the phase early" works: the game moves
+        // its phaseEndsAt to now and the scheduler advances immediately.
+        if (sessionId && gameId) {
+          if (finished) scheduler.cancel(sessionId);
+          else
+            await scheduler.scheduleFromSession({
+              sessionId,
+              roomId,
+              gameId,
+              stateVersion: outcome.session.stateVersion,
+              state: outcome.session.state,
+            });
         }
       } catch (err) {
         if (err instanceof NotAMemberError) return sendError(socket, 'NOT_A_MEMBER', 'شما عضو این اتاق نیستید', actionId);
@@ -377,6 +413,11 @@ export function registerRealtimeHandlers(
           if (!result.roomClosed && result.room) {
             io.to(socketRoomName(roomId)).emit('PLAYER_LEFT', { roomId, userId, room: result.room });
           }
+          await notifyGameOfPlayerLeft(io, { gameSessionService, scheduler }, {
+            roomId,
+            userId,
+            roomClosed: result.roomClosed,
+          });
         } catch (err) {
           console.error('grace-period leave error', err);
         }

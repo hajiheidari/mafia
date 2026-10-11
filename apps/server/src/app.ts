@@ -8,7 +8,13 @@ import { registerAuthRoutes } from './plugins/auth.js';
 import { registerRoomRoutes } from './plugins/rooms.js';
 import { createSocketAuthMiddleware, type SocketData } from './realtime/socketAuth.js';
 import { registerRealtimeHandlers } from './realtime/registerRealtimeHandlers.js';
-import { getGuestAuth, getRoomService, getGameSessionService, getRateLimiter } from './services.js';
+import {
+  getGuestAuth,
+  getRoomService,
+  getGameSessionService,
+  getRateLimiter,
+  getPhaseScheduler,
+} from './services.js';
 
 export type AppIO = SocketIOServer<ClientToServerEvents, ServerToClientEvents, object, SocketData>;
 
@@ -52,6 +58,10 @@ export async function createServer(): Promise<{ app: FastifyInstance; io: AppIO 
     })),
   }));
 
+  // Hooks must be added before ready().
+  const scheduler = getPhaseScheduler(io);
+  app.addHook('onClose', async () => scheduler.cancelAll());
+
   await registerAuthRoutes(app);
   await registerRoomRoutes(app, io);
 
@@ -63,7 +73,12 @@ export async function createServer(): Promise<{ app: FastifyInstance; io: AppIO 
     roomService: getRoomService(),
     gameSessionService: getGameSessionService(),
     rateLimiter: getRateLimiter(),
+    scheduler,
   });
+
+  // Restart recovery: re-arm every active session's phase timer; phases
+  // that ran out while the server was down advance immediately.
+  await scheduler.recoverAll();
 
   return { app, io };
 }

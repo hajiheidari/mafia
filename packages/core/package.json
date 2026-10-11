@@ -10,6 +10,7 @@
   "dependencies": {
     "@platform/types": "*",
     "@platform/db": "*",
+    "@platform/game-engine": "*",
     "jsonwebtoken": "^9.0.2",
     "ioredis": "^5.4.1"
   },

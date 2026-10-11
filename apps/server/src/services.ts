@@ -5,10 +5,14 @@ import {
   createRedisPresenceStore,
   createRedisRateLimiter,
   createRedisIdempotencyStore,
+  createDbPhaseSchedulerStorage,
   GuestAuthProvider,
   RoomService,
   GameSessionService,
 } from '@platform/core';
+import { PhaseScheduler } from '@platform/game-engine';
+import type { Server } from 'socket.io';
+import { broadcastGameTransition } from './realtime/broadcastGameTransition.js';
 
 // Constructed lazily (function, not top-level `new Redis()`) for the same
 // reason packages/db's pool is lazy — avoid capturing env vars before
@@ -55,4 +59,26 @@ export function getPresenceStore() {
 
 export function getRateLimiter() {
   return createRedisRateLimiter(getRedis());
+}
+
+// One scheduler per Socket.IO server (tests boot several servers in one
+// process; each needs timers that broadcast through ITS OWN io).
+const _schedulers = new WeakMap<Server<any, any, any, any>, PhaseScheduler>();
+
+export function getPhaseScheduler(io: Server<any, any, any, any>): PhaseScheduler {
+  let scheduler = _schedulers.get(io);
+  if (!scheduler) {
+    scheduler = new PhaseScheduler(createDbPhaseSchedulerStorage(), {
+      onTransition: (session, transition) =>
+        broadcastGameTransition(io, {
+          roomId: session.roomId,
+          gameId: session.gameId,
+          nextVersion: transition.nextVersion,
+          nextState: transition.nextState,
+          events: transition.events,
+        }),
+    });
+    _schedulers.set(io, scheduler);
+  }
+  return scheduler;
 }

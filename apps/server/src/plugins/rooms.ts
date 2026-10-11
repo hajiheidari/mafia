@@ -1,13 +1,22 @@
 import type { FastifyInstance } from 'fastify';
 import type { Server } from 'socket.io';
-import { getGuestAuth, getRoomService, getGameSessionService } from '../services.js';
+import { getGuestAuth, getRoomService, getGameSessionService, getPhaseScheduler } from '../services.js';
+import { notifyGameOfPlayerLeft } from '../realtime/gameLifecycle.js';
+import { broadcastGameTransition } from '../realtime/broadcastGameTransition.js';
 import { requireAuth } from './requireAuth.js';
 import {
   RoomNotFoundError,
   RoomFullError,
   RoomClosedError,
 } from '@platform/db';
-import { PermissionDeniedError, NotAMemberError, NoActiveSessionError, GameNotFoundError } from '@platform/core';
+import {
+  PermissionDeniedError,
+  NotAMemberError,
+  NoActiveSessionError,
+  GameNotFoundError,
+  InvalidGameConfigError,
+  GameAlreadyActiveError,
+} from '@platform/core';
 import { socketRoomName, type ClientToServerEvents, type ServerToClientEvents } from '@platform/types';
 import type { SocketData } from '../realtime/socketAuth.js';
 
@@ -17,6 +26,8 @@ export async function registerRoomRoutes(app: FastifyInstance, io: AppIO) {
   const roomService = getRoomService();
   const gameSessionService = getGameSessionService();
   const verify = requireAuth(getGuestAuth());
+  const scheduler = getPhaseScheduler(io);
+  const lifecycleDeps = { gameSessionService, scheduler };
 
   // POST /api/rooms — create a private room, caller becomes HOST.
   app.post<{ Body: { gameId?: string; maxPlayers?: number } }>('/api/rooms', async (request, reply) => {
@@ -88,6 +99,11 @@ export async function registerRoomRoutes(app: FastifyInstance, io: AppIO) {
         room: result.room,
       });
     }
+    await notifyGameOfPlayerLeft(io, lifecycleDeps, {
+      roomId: request.params.id,
+      userId,
+      roomClosed: result.roomClosed,
+    });
     return { ok: true };
   });
 
@@ -128,6 +144,11 @@ export async function registerRoomRoutes(app: FastifyInstance, io: AppIO) {
             room: result.room,
           });
         }
+        await notifyGameOfPlayerLeft(io, lifecycleDeps, {
+          roomId: request.params.id,
+          userId: request.body.targetUserId,
+          roomClosed: result.roomClosed,
+        });
         return { ok: true };
       } catch (err) {
         if (err instanceof NotAMemberError || err instanceof PermissionDeniedError) {
@@ -143,27 +164,46 @@ export async function registerRoomRoutes(app: FastifyInstance, io: AppIO) {
   // every currently-connected player their OWN filtered initial view (so
   // the client doesn't have to wait for a first GAME_ACTION round-trip to
   // see anything). See Milestone 6 §12.
-  app.post<{ Params: { id: string } }>('/api/rooms/:id/start', async (request, reply) => {
+  // Optional body: { config } — game-specific settings; the game module
+  // validates them inside createInitialState (server-side, never trusted).
+  app.post<{ Params: { id: string }; Body: { config?: unknown } | undefined }>('/api/rooms/:id/start', async (request, reply) => {
     const userId = verify(request, reply);
     if (!userId) return;
     const roomId = request.params.id;
 
     try {
-      const { gameId } = await gameSessionService.startGame(roomId, userId);
+      const started = await gameSessionService.startGame(roomId, userId, undefined, request.body?.config);
+      const { gameId } = started;
       io.to(socketRoomName(roomId)).emit('GAME_STARTED', { roomId, gameId });
 
-      const socketsInRoom = await io.in(socketRoomName(roomId)).fetchSockets();
-      for (const s of socketsInRoom) {
-        const state = await gameSessionService.getStateForPlayer(roomId, (s.data as SocketData).userId);
-        if (state) {
-          s.emit('GAME_STATE', { roomId, stateVersion: state.stateVersion, view: state.view });
-        }
-      }
+      // Personal initial view for every connected socket (same helper as
+      // every other transition; no public events at start).
+      await broadcastGameTransition(io, {
+        roomId,
+        gameId,
+        nextVersion: started.stateVersion,
+        nextState: started.state,
+        events: [],
+      });
+
+      await scheduler.scheduleFromSession({
+        sessionId: started.sessionId,
+        roomId,
+        gameId,
+        stateVersion: started.stateVersion,
+        state: started.state,
+      });
 
       return { ok: true, gameId };
     } catch (err) {
       if (err instanceof NotAMemberError || err instanceof PermissionDeniedError) {
         return reply.code(403).send({ code: 'NOT_ALLOWED', message: 'اجازه انجام این کار را ندارید' });
+      }
+      if (err instanceof GameAlreadyActiveError) {
+        return reply.code(409).send({ code: 'GAME_ALREADY_ACTIVE', message: 'بازی در حال اجراست' });
+      }
+      if (err instanceof InvalidGameConfigError) {
+        return reply.code(400).send({ code: 'INVALID_CONFIG', message: 'تنظیمات بازی معتبر نیست', reason: err.message });
       }
       if (err instanceof NoActiveSessionError || err instanceof GameNotFoundError) {
         return reply.code(400).send({ code: 'GAME_NOT_FOUND', message: 'امکان شروع بازی وجود ندارد' });

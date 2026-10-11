@@ -1,6 +1,8 @@
 // Generic Game Engine contract. Nothing in this file may reference a
 // specific game (Mafia, Spy, ...). See ARCHITECTURE.md §3.
 
+import type { RoomRole, RoomStatus } from './room';
+
 export interface GamePlayer {
   id: string;
   displayName: string;
@@ -17,7 +19,16 @@ export type DomainEvent =
   | { type: 'PLAYER_ACTION'; playerId: string; actionType: string }
   | { type: 'PLAYER_VOTED'; playerId: string; targetId: string }
   | { type: 'PLAYER_ELIMINATED'; playerId: string }
-  | { type: 'GAME_FINISHED'; winnerSide: string | null };
+  | { type: 'GAME_FINISHED'; winnerSide: string | null }
+  // Open-ended variant so game modules can emit their own PUBLIC event
+  // types without the engine having to enumerate them.
+  | { type: string; [key: string]: unknown };
+
+/** Room-level facts a game may use when deciding whether a player may chat. */
+export interface ChatAuthorizationContext {
+  roomRole: RoomRole;
+  roomStatus: RoomStatus;
+}
 
 export interface ValidationResult {
   valid: boolean;
@@ -60,6 +71,24 @@ export interface GameDefinition<TState = unknown, TAction = unknown, TConfig = u
 
   /** The ONLY function whose output may be sent to a client. */
   getPlayerView(state: TState, playerId: string): unknown;
+
+  // --- Optional hooks (all opt-in; games that omit them keep M1–M6 behavior) ---
+
+  /**
+   * Epoch ms at which the current phase ends and getNextPhase() should be
+   * run by the server-side PhaseScheduler. null/undefined = no timer.
+   */
+  getPhaseEndsAt?(state: TState): number | null;
+
+  /**
+   * Called once a player has PERMANENTLY left (explicit leave, kick, or
+   * disconnect grace period expiry) — never for a temporary disconnect.
+   * Returning null means "no state change".
+   */
+  onPlayerLeft?(state: TState, playerId: string): ActionResult<TState> | null;
+
+  /** Whether this player may send room chat right now. Absent = always allowed. */
+  canSendMessage?(state: TState, playerId: string, context: ChatAuthorizationContext): boolean;
 }
 
 export interface ActionEnvelope<TAction = unknown> {

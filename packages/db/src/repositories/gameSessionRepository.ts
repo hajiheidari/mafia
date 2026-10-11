@@ -84,3 +84,31 @@ export async function insertGameEvents(
     client.release();
   }
 }
+
+/**
+ * Compare-and-swap state write. Succeeds only if the row is still at
+ * `expectedVersion` — the check and the write are a single UPDATE, so two
+ * concurrent writers (timer vs. action vs. leave) can never both win.
+ */
+export async function casApplyPhaseTransition(params: {
+  sessionId: string;
+  expectedVersion: number;
+  nextVersion: number;
+  nextState: unknown;
+}): Promise<boolean> {
+  const result = await pool.query(
+    `UPDATE game_sessions SET "stateVersion" = $3, state = $4
+     WHERE id = $1 AND "stateVersion" = $2 AND "endedAt" IS NULL`,
+    [params.sessionId, params.expectedVersion, params.nextVersion, JSON.stringify(params.nextState)],
+  );
+  return result.rowCount === 1;
+}
+
+/** Every session that has not ended yet — used by the scheduler's restart recovery. */
+export async function getAllActiveSessions(): Promise<GameSessionRow[]> {
+  const { rows } = await pool.query(
+    `SELECT id, "roomId", "gameId", "stateVersion", phase, state, "startedAt", "endedAt"
+     FROM game_sessions WHERE "endedAt" IS NULL ORDER BY "startedAt" ASC`,
+  );
+  return rows;
+}
