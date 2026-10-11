@@ -1,0 +1,8 @@
+{
+  "appId": "com.espadna.mafia",
+  "appName": "Mafia Narrator",
+  "webDir": "www",
+  "backgroundColor": "#0B0B14",
+  "android": { "backgroundColor": "#0B0B14" },
+  "ios": { "backgroundColor": "#0B0B14", "contentInset": "never" }
+}

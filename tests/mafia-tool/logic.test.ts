@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'vitest';
 // @ts-expect-error plain JS module shipped as-is to the static host
-import * as L from '../../deploy/mafia-tool/logic.js';
+import * as L from '../../web/tool/logic.js';
 
 const names = (n: number) => Array.from({ length: n }, (_, i) => `n${i + 1}`);
 type P = { id: string; role: string; alive: boolean };

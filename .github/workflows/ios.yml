@@ -1,0 +1,191 @@
+# Builds the iOS app on a GitHub Mac and sends it to TestFlight.
+# Starts by hand (Actions → "iOS (TestFlight)" → Run workflow), or when
+# mobile/ios/BUILD changes in a push (edit any text in it and push).
+#
+# Repository secrets (Settings → Secrets and variables → Actions), the same
+# values as in hajiheidari/pantomime:
+#   ASC_ISSUER_ID, ASC_KEY_ID  App Store Connect API key (Admin role)
+#   ASC_PRIVATE_KEY            the AuthKey_….p8 file (whole file, or only the
+#                              base64 line between BEGIN and END)
+# Before the first upload, create the app in App Store Connect (My Apps → +
+# → New App) with bundle id com.espadna.mafia. The first run registers the
+# bundle id itself if it does not exist yet.
+#
+# Signing: each run creates a temporary Apple Distribution certificate and
+# App Store profile through the API key (tools/ios_signing.mjs) and revokes
+# them at the end, so no certificate has to be stored anywhere.
+name: iOS (TestFlight)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['**']
+    paths: ['mobile/ios/BUILD']
+
+concurrency:
+  group: ios-testflight
+  cancel-in-progress: false
+
+jobs:
+  # Cheap Linux check first: without the secrets the Mac job is skipped (with
+  # a warning) instead of failing.
+  secrets:
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - id: check
+        env:
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: |
+          missing=()
+          for name in ASC_ISSUER_ID ASC_KEY_ID ASC_PRIVATE_KEY; do
+            [[ -n "${!name}" ]] || missing+=("$name")
+          done
+          if (( ${#missing[@]} )); then
+            echo "::warning::iOS build skipped. Missing repository secrets: ${missing[*]}"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  testflight:
+    needs: secrets
+    if: needs.secrets.outputs.ready == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      APPLE_TEAM_ID: RGR5G6VN69
+      IOS_BUNDLE_ID: com.espadna.mafia
+      IOS_APP_NAME: Mafia Narrator
+    steps:
+      - name: API key file
+        env:
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.appstoreconnect/private_keys
+          key_file=~/.appstoreconnect/private_keys/AuthKey_"$ASC_KEY_ID".p8
+          # Standard PEM (64-character lines) whatever form the secret has:
+          # Xcode's parser rejects anything else.
+          body=$(sed '/-----/d' <<<"$ASC_PRIVATE_KEY" | tr -d ' \n\r\t')
+          { echo '-----BEGIN PRIVATE KEY-----'; fold -w 64 <<<"$body"; echo '-----END PRIVATE KEY-----'; } > "$key_file"
+          chmod 600 "$key_file"
+
+      - name: Use the newest Xcode
+        run: |
+          xcode=$(ls -d /Applications/Xcode_*.app | grep -v -i beta | sort -V | tail -1)
+          sudo xcode-select -s "$xcode"
+          xcodebuild -version
+
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Web files into the app
+        working-directory: mobile
+        run: |
+          npm ci
+          npm run www
+          npx cap sync ios
+
+      # A fresh Apple Distribution certificate + App Store profile for this
+      # run only (tools/ios_signing.mjs); revoked again in the last step.
+      - name: Temporary signing certificate and profile
+        env:
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: |
+          W="$RUNNER_TEMP/sign"; mkdir -p "$W"
+          /usr/bin/openssl genrsa -out "$W/key.pem" 2048 2>/dev/null
+          /usr/bin/openssl req -new -key "$W/key.pem" -subj "/CN=Mafia CI/O=Espadna/C=US" -out "$W/req.csr"
+          node tools/ios_signing.mjs prepare "$W/req.csr" "$W" > "$W/out.json"
+          cert_id=$(jq -r .certId "$W/out.json"); profile_id=$(jq -r .profileId "$W/out.json")
+          profile_name=$(jq -r .profileName "$W/out.json"); profile_uuid=$(jq -r .profileUuid "$W/out.json")
+          echo "CERT_ID=$cert_id" >> "$GITHUB_ENV"
+          echo "PROFILE_ID=$profile_id" >> "$GITHUB_ENV"
+          echo "PROFILE_NAME=$profile_name" >> "$GITHUB_ENV"
+
+          /usr/bin/openssl x509 -inform DER -in "$W/cert.cer" -out "$W/cert.pem"
+          p12_pass=$(/usr/bin/openssl rand -hex 16)
+          /usr/bin/openssl pkcs12 -export -inkey "$W/key.pem" -in "$W/cert.pem" \
+            -out "$W/cert.p12" -passout "pass:$p12_pass"
+          kc="$RUNNER_TEMP/signing.keychain-db"; kc_pass=$(/usr/bin/openssl rand -hex 16)
+          echo "KEYCHAIN=$kc" >> "$GITHUB_ENV"
+          security create-keychain -p "$kc_pass" "$kc"
+          security set-keychain-settings -lut 3600 "$kc"
+          security unlock-keychain -p "$kc_pass" "$kc"
+          security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
+          security import "$W/cert.p12" -k "$kc" -P "$p12_pass" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$kc_pass" "$kc" >/dev/null
+          security find-identity -v -p codesigning "$kc"
+
+          for d in "$HOME/Library/MobileDevice/Provisioning Profiles" \
+                   "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
+            mkdir -p "$d"; cp "$W/profile.mobileprovision" "$d/$profile_uuid.mobileprovision"
+          done
+          rm -f "$W/key.pem" "$W/cert.p12"
+
+          # Manual signing for the App target only (Swift packages must stay
+          # unsigned, so these are not passed on the xcodebuild command line).
+          pbx=mobile/ios/App/App.xcodeproj/project.pbxproj
+          sed -i '' "s/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual; DEVELOPMENT_TEAM = $APPLE_TEAM_ID; \"CODE_SIGN_IDENTITY[sdk=iphoneos*]\" = \"Apple Distribution\"; PROVISIONING_PROFILE_SPECIFIER = \"$profile_name\";/" "$pbx"
+          grep -c "CODE_SIGN_STYLE = Manual" "$pbx"
+
+      - name: Archive
+        working-directory: mobile/ios/App
+        run: |
+          set -o pipefail
+          version=$(node -p "require('../../package.json').version")
+          xcodebuild -project App.xcodeproj -scheme App \
+            -configuration Release -destination generic/platform=iOS \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            MARKETING_VERSION="$version" CURRENT_PROJECT_VERSION=${{ github.run_number }} \
+            archive 2>&1 | tee "$RUNNER_TEMP/archive.log" \
+            || { grep -E "error:|Error:|failed" "$RUNNER_TEMP/archive.log" | tail -15 | sed 's/^/::error::/'; exit 1; }
+
+      - name: Upload to App Store Connect
+        run: |
+          set -o pipefail
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>teamID</key><string>${APPLE_TEAM_ID}</string>
+            <key>signingCertificate</key><string>Apple Distribution</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>${IOS_BUNDLE_ID}</key><string>${PROFILE_NAME}</string>
+            </dict>
+            <key>uploadSymbols</key><true/>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+          </dict>
+          </plist>
+          PLIST
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_"$ASC_KEY_ID".p8 \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" 2>&1 | tee "$RUNNER_TEMP/export.log" \
+            || { grep -E "error|Error|failed" "$RUNNER_TEMP/export.log" | tail -15 | sed 's/^/::error::/'
+                 echo "::error::If it says the app does not exist: create it in App Store Connect with bundle id $IOS_BUNDLE_ID, then run again."
+                 exit 1; }
+          echo "Uploaded build ${{ github.run_number }} to TestFlight (it appears there after Apple's processing, ~10–30 min)." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Revoke the temporary certificate, remove keys
+        if: always()
+        env:
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: |
+          if [[ -n "${CERT_ID:-}" ]]; then node tools/ios_signing.mjs cleanup "$CERT_ID" "${PROFILE_ID:-}"; fi
+          if [[ -n "${KEYCHAIN:-}" ]]; then security delete-keychain "$KEYCHAIN" || true; fi
+          rm -rf ~/.appstoreconnect "$RUNNER_TEMP/sign"

@@ -1,0 +1,77 @@
+# Android APK for Cafe Bazaar (Capacitor shell around web/tool).
+# Download it from the run page → "Artifacts" → mafia-bazaar-apk.
+#
+# Signing — repository secrets (Settings → Secrets and variables → Actions):
+#   BAZAAR_KEYSTORE_BASE64   the .jks file as base64 (`base64 -w0 bazaar-upload.jks`)
+#   BAZAAR_KEYSTORE_PASSWORD, BAZAAR_KEY_ALIAS, BAZAAR_KEY_PASSWORD
+# The same Bazaar key as Pantomime can be used. Bazaar keeps the key you
+# sign with: every update must be signed with the same key forever.
+# Without these secrets the APK is debug-signed: fine for testing on a phone,
+# never upload it to Bazaar.
+#
+# Version: name from mobile/package.json ("version"), code = run number + 100.
+name: Android (Bazaar)
+
+on:
+  push:
+    branches: ['**']
+    paths: ['mobile/**', 'web/tool/**', 'tools/web_build.mjs', '.github/workflows/android.yml']
+  workflow_dispatch:
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run www
+      - run: npx cap sync android
+
+      - name: Signing key
+        env:
+          BAZAAR_KEYSTORE_BASE64: ${{ secrets.BAZAAR_KEYSTORE_BASE64 }}
+        run: |
+          if [[ -z "$BAZAAR_KEYSTORE_BASE64" ]]; then
+            echo "::warning::BAZAAR_KEYSTORE_BASE64 not set: the APK is debug-signed (testing only, do not upload to Bazaar)."
+            echo "SIGNED=debug" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          echo "$BAZAAR_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/bazaar.jks"
+          echo "BAZAAR_KEYSTORE_FILE=$RUNNER_TEMP/bazaar.jks" >> "$GITHUB_ENV"
+          echo "SIGNED=bazaar" >> "$GITHUB_ENV"
+
+      - name: Build release APK
+        env:
+          BAZAAR_KEYSTORE_PASSWORD: ${{ secrets.BAZAAR_KEYSTORE_PASSWORD }}
+          BAZAAR_KEY_ALIAS: ${{ secrets.BAZAAR_KEY_ALIAS }}
+          BAZAAR_KEY_PASSWORD: ${{ secrets.BAZAAR_KEY_PASSWORD }}
+        run: |
+          export VERSION_NAME=$(node -p "require('./package.json').version")
+          export VERSION_CODE=$(( ${{ github.run_number }} + 100 ))
+          (cd android && ./gradlew assembleRelease --no-daemon)
+          out="mafia-$VERSION_NAME-$VERSION_CODE-$SIGNED.apk"
+          mkdir -p ../build && cp android/app/build/outputs/apk/release/app-release.apk "../build/$out"
+          echo "APK=$out" >> "$GITHUB_ENV"
+          rm -f "$RUNNER_TEMP/bazaar.jks"
+          echo "### $out" >> "$GITHUB_STEP_SUMMARY"
+          echo "Signed with: **$SIGNED** key" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mafia-bazaar-apk
+          path: build/${{ env.APK }}
+          retention-days: 60

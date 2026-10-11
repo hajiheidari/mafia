@@ -1,0 +1,57 @@
+# Web: builds and deploys the narrator tool and its landing pages.
+#   mafia.espadna.com            ← build/tool     (Worker "mafia")
+#   espadna.com/mafia-app/*      ← build/landing  (Worker "mafia-app", route on the espadna.com zone)
+# espadna.ir copies both automatically (hajiheidari/espadna-site, mirror-ir/), from files.json.
+#
+# Deploys on every push to main (and by hand: Actions → Web → Run workflow).
+# Repository secrets (Settings → Secrets and variables → Actions), the same
+# values as in hajiheidari/espadna-site:
+#   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID
+# Without them the site is still built and tested, only not deployed.
+# Never run `wrangler deploy` by hand.
+name: Web
+
+on:
+  push:
+    branches: ['**']
+    paths: ['web/**', 'tools/**', 'tests/mafia-tool/**', '.github/workflows/web.yml']
+  workflow_dispatch:
+
+concurrency:
+  group: web-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Landing pages are up to date with tools/landing.py
+        run: |
+          python3 tools/landing.py
+          git diff --exit-code -- web/landing || { echo "::error::Run python3 tools/landing.py and commit the result."; exit 1; }
+      - name: Tool rule tests
+        run: npm ci && npx vitest run tests/mafia-tool
+      - name: Build
+        run: node tools/web_build.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mafia-web
+          path: build/mafia-web.zip
+          retention-days: 30
+      - name: Deploy to Cloudflare
+        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [[ -z "$CLOUDFLARE_API_TOKEN" || -z "$CLOUDFLARE_ACCOUNT_ID" ]]; then
+            echo "::warning::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID not set: built but not deployed."
+            exit 0
+          fi
+          npx --yes wrangler@4 deploy -c web/wrangler.tool.toml
+          npx --yes wrangler@4 deploy -c web/wrangler.landing.toml

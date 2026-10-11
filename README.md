@@ -16,6 +16,8 @@ yet. See `ARCHITECTURE.md` for the full design.
   /game-engine  Generic engine: registry, action pipeline, versioning
   /games/fake-game  Placeholder game — proves the engine works end to end
   /games/mafia      Mafia (first real game) — see packages/games/mafia/docs/MAFIA_SPEC.md
+/web              Offline Mafia narrator tool + landing pages (mafia.espadna.com) — web/README.md
+/mobile           Android (Cafe Bazaar) / iOS apps of the narrator tool — mobile/README.md
   /core       Auth/room/chat/presence package skeleton (filled in per milestone)
   /ui         Shared React components
   /i18n       Persian strings (fa.json) — no game is added here

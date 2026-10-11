@@ -1,0 +1,11 @@
+# espadna.com/mafia-app/*: landing pages (en, fa/, ar/), served by this
+# Worker route on the espadna.com zone (a route wins over the espadna-site
+# Worker, same as Tiaro and Adadi). Deployed by .github/workflows/web.yml.
+name = "mafia-app"
+compatibility_date = "2026-10-01"
+routes = [{ pattern = "espadna.com/mafia-app*", zone_name = "espadna.com" }]
+
+[assets]
+directory = "../build/landing"
+html_handling = "auto-trailing-slash"
+not_found_handling = "404-page"

@@ -1,9 +1,0 @@
-DirectoryIndex index.html
-AddType font/woff2 .woff2
-AddType application/manifest+json .webmanifest
-AddType text/javascript .js
-<IfModule mod_headers.c>
-  <FilesMatch "sw\.js$">
-    Header set Cache-Control "no-cache"
-  </FilesMatch>
-</IfModule>
