@@ -86,6 +86,11 @@ jobs:
         with:
           node-version: 22
 
+      - name: Secrets are well-formed
+        env:
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: node tools/ios_signing.mjs check
+
       - name: Web files into the app
         working-directory: mobile
         run: |

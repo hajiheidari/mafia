@@ -50,7 +50,10 @@ async function api(method, path, body) {
         return text.slice(0, 300);
       }
     })();
-    throw new Error(`${method} ${path} → ${r.status} ${detail}`);
+    const hint = r.status === 401
+      ? ' (Apple rejected the key: the Issuer ID, Key ID and .p8 file must belong to the same Team key with Admin access; an "Individual" key does not work here)'
+      : '';
+    throw new Error(`${method} ${path} → ${r.status} ${detail}${hint}`);
   }
   return text ? JSON.parse(text) : null;
 }
@@ -105,9 +108,35 @@ async function cleanup(certId, profileId) {
   console.log('cleaned up');
 }
 
+/** Format check of the three secrets, without printing them (diagnoses a 401). */
+function check() {
+  const problems = [];
+  const issuer = (process.env.ASC_ISSUER_ID || '').trim();
+  const keyId = (process.env.ASC_KEY_ID || '').trim();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(issuer)) {
+    problems.push(`ASC_ISSUER_ID is not an Issuer ID (expected 36 characters like 69a6de7e-…; got ${issuer.length} characters)`);
+  }
+  if (!/^[A-Z0-9]{10}$/.test(keyId)) {
+    problems.push(`ASC_KEY_ID is not a Key ID (expected 10 capital letters/digits; got ${keyId.length} characters)`);
+  }
+  if (issuer && keyId && issuer === keyId) problems.push('ASC_ISSUER_ID and ASC_KEY_ID are the same value');
+  try {
+    let k = (process.env.ASC_PRIVATE_KEY || '').trim();
+    if (!k.includes('BEGIN')) k = `-----BEGIN PRIVATE KEY-----\n${k.replace(/\s+/g, '')}\n-----END PRIVATE KEY-----\n`;
+    const key = crypto.createPrivateKey(k);
+    if (key.asymmetricKeyType !== 'ec') problems.push('ASC_PRIVATE_KEY is not an App Store Connect key (.p8 EC key)');
+  } catch {
+    problems.push('ASC_PRIVATE_KEY cannot be read: paste the whole AuthKey_….p8 file');
+  }
+  for (const p of problems) console.error(`::error::${p}`);
+  if (problems.length) process.exit(1);
+  console.log('secrets look well-formed');
+}
+
 const [cmd, a, b] = process.argv.slice(2);
 try {
-  if (cmd === 'prepare') await prepare(a, b);
+  if (cmd === 'check') check();
+  else if (cmd === 'prepare') await prepare(a, b);
   else if (cmd === 'cleanup') await cleanup(a, b);
   else throw new Error('usage: ios_signing.mjs prepare <csr> <dir> | cleanup <certId> [profileId]');
 } catch (e) {
