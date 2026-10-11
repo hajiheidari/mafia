@@ -15,6 +15,7 @@ yet. See `ARCHITECTURE.md` for the full design.
   /types      Shared TS contracts (Room, GameDefinition, Socket events)
   /game-engine  Generic engine: registry, action pipeline, versioning
   /games/fake-game  Placeholder game — proves the engine works end to end
+  /games/mafia      Mafia (first real game) — see packages/games/mafia/docs/MAFIA_SPEC.md
   /core       Auth/room/chat/presence package skeleton (filled in per milestone)
   /ui         Shared React components
   /i18n       Persian strings (fa.json) — no game is added here
@@ -64,9 +65,13 @@ npm run dev        # runs apps/web (:3000) and apps/server (:4000) via turbo
 ## Test
 
 ```bash
-npm run test        # vitest — engine pipeline + leak-detection suite
+npm run test        # vitest — engine, scheduler, mafia rules + realtime integration
 npm run typecheck    # tsc --noEmit across every package
 ```
+
+Backend tests need PostgreSQL and Redis running and the env from `.env`
+loaded (e.g. `set -a && . ./.env && set +a && NODE_ENV=test npm run test`).
+The web app's own tests run with `cd apps/web && npx vitest run`.
 
 ## Adding a new game module
 

@@ -214,6 +214,16 @@ Server → بررسی RoomMember فعال → SYNC کامل (state فیلترش�
 - کلاینت فقط `Math.max(0, phaseEndsAt - now)` را رندر می‌کند.
 - پایان فاز، اعتبار رأی، و اجازه‌ی اکشن **همیشه** توسط سرور تصمیم‌گیری می‌شود؛ کلاینت هرگز تصمیم‌گیرنده نیست.
 
+### ۹.۱ Phase Scheduler عمومی (Milestone 7B)
+
+- هر بازی می‌تواند به‌صورت اختیاری `getPhaseEndsAt(state)` را پیاده کند. `PhaseScheduler` در `packages/game-engine/src/scheduler.ts` (بدون هیچ ارجاعی به بازی خاص) وقتی زمان فاز رسید `getNextPhase(state)` را اجرا می‌کند.
+- نوشتن state همیشه با **CAS روی `stateVersion`** است (`casApplyPhaseTransition`، یک `UPDATE ... WHERE "stateVersion" = $expected`). تایمر دوبار، تایمر هم‌زمان با اکشن، یا تایمر هم‌زمان با خروج بازیکن → فقط یک انتقال، نسخه فقط ۱ واحد جلو می‌رود و events یک‌بار ذخیره می‌شوند.
+- بازیابی بعد از ری‌استارت: `createServer()` → `scheduler.recoverAll()`؛ فازهای منقضی فوراً جلو می‌روند.
+- تکمیل زودهنگام (مثلاً همه‌ی نقش‌های شب اکشن داده‌اند) از همان مسیر است: بازی `phaseEndsAt` را به «اکنون» می‌آورد و scheduler بلافاصله جلو می‌برد.
+- هر انتقال (اکشن، تایمر، خروج، شروع) فقط از مسیر `broadcastGameTransition` پخش می‌شود: `GAME_EVENT` عمومی برای اتاق + `GAME_STATE` شخصی برای هر سوکت.
+- هوک‌های اختیاری دیگر: `onPlayerLeft` (فقط خروج دائمی)، `canSendMessage` (چت)، `acceptsStaleClientVersion` (برای بازی‌هایی با اکشن هم‌زمان چند بازیکن).
+- وقتی `checkWinCondition` نتیجه دارد، session `endedAt` می‌گیرد (چت دوباره آزاد می‌شود).
+
 ---
 
 ## ۱۰. ساختار پوشه‌ها (به‌روزشده)
@@ -225,7 +235,8 @@ Server → بررسی RoomMember فعال → SYNC کامل (state فیلترش�
 /packages
   /game-engine        → applyAction, validateAction, event bus, sync logic
   /games
-    /mafia
+    /fake-game         → بازی ساختگی برای تست Engine
+    /mafia             → اولین بازی واقعی (M7B) — docs/MAFIA_SPEC.md
     /spy
     /name-family
   /core

@@ -6,15 +6,16 @@ import { GameCard } from '@platform/ui';
 import { LoadingScreen } from '../../components/LoadingScreen';
 import { useAuth } from '../../lib/AuthProvider';
 import { fetchGames, createRoom, friendlyRoomError, type GameSummary } from '../../lib/roomApi';
+import { presentGame } from '../../lib/gamePresentation';
 
 // Real games (Milestone 7+) will come entirely from the Game Registry API
 // below. These three are marketed on the homepage/games grid as "coming
 // soon" per Milestone 6 §3/§4 — deliberately NOT wired to any create-room
 // action, so they can never appear playable before they exist.
 const COMING_SOON = [
-  { icon: '🕵️', name: 'مافیا', description: 'بازی گروهی و نقش مخفی', minPlayers: 6, maxPlayers: 20 },
-  { icon: '🎭', name: 'جاسوس', description: 'یک نفر جاسوسه، بقیه باید پیداش کنن', minPlayers: 4, maxPlayers: 10 },
-  { icon: '📝', name: 'اسم فامیل', description: 'سریع فکر کن، سریع بنویس', minPlayers: 2, maxPlayers: 10 },
+  { id: 'mafia', icon: '🕵️', name: 'مافیا', description: 'بازی گروهی و نقش مخفی', minPlayers: 6, maxPlayers: 20 },
+  { id: 'spy', icon: '🎭', name: 'جاسوس', description: 'یک نفر جاسوسه، بقیه باید پیداش کنن', minPlayers: 4, maxPlayers: 10 },
+  { id: 'esm-famil', icon: '📝', name: 'اسم فامیل', description: 'سریع فکر کن، سریع بنویس', minPlayers: 2, maxPlayers: 10 },
 ];
 
 export default function GamesPage() {
@@ -58,20 +59,23 @@ export default function GamesPage() {
       )}
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        {games.map((game) => (
-          <GameCard
-            key={game.id}
-            icon="🎮"
-            name="بازی نمایشی"
-            description="برای تست پلتفرم — به‌زودی بازی‌های واقعی جایگزین می‌شوند"
-            minPlayers={game.minPlayers}
-            maxPlayers={game.maxPlayers}
-            available
-            onPlay={creating ? undefined : () => handlePlay(game)}
-          />
-        ))}
-        {COMING_SOON.map((game) => (
-          <GameCard key={game.name} {...game} available={false} />
+        {games.map((game) => {
+          const look = presentGame(game.id, game);
+          return (
+            <GameCard
+              key={game.id}
+              icon={look.icon}
+              name={look.name}
+              description={look.description}
+              minPlayers={game.minPlayers}
+              maxPlayers={game.maxPlayers}
+              available
+              onPlay={creating ? undefined : () => handlePlay(game)}
+            />
+          );
+        })}
+        {COMING_SOON.filter((soon) => !games.some((g) => g.id === soon.id)).map(({ id, ...game }) => (
+          <GameCard key={id} {...game} available={false} />
         ))}
       </div>
 

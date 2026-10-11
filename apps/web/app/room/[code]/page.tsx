@@ -10,6 +10,8 @@ import { LoadingScreen } from '../../../components/LoadingScreen';
 import { Lobby } from '../../../components/Lobby';
 import { ChatPanel } from '../../../components/ChatPanel';
 import { FakeGameView } from '../../../components/FakeGameView';
+import { MafiaDebugView } from '../../../components/MafiaDebugView';
+import { presentGame } from '../../../lib/gamePresentation';
 import { startGame as startGameRequest, removePlayer as removePlayerRequest, fetchGames, friendlyRoomError } from '../../../lib/roomApi';
 
 export default function RoomPage() {
@@ -99,11 +101,30 @@ export default function RoomPage() {
     router.push('/');
   }
 
+  const gameName = presentGame(room.gameId).name;
+
+  function renderGameView(view: unknown) {
+    if (room!.gameId === 'mafia') {
+      return (
+        <MafiaDebugView
+          view={view as import('@platform/game-mafia').MafiaPlayerView}
+          onAction={sendGameAction}
+        />
+      );
+    }
+    return (
+      <FakeGameView
+        view={view as import('@platform/game-fake').FakePlayerView}
+        onPing={() => sendGameAction({ type: 'PING' })}
+      />
+    );
+  }
+
   if (gameStarted) {
     const activePlayers = room.members.filter((m) => m.role === 'HOST' || m.role === 'PLAYER');
     return (
       <GameShell
-        gameName="بازی نمایشی"
+        gameName={gameName}
         connectionStatus={connectionStatus}
         onLeave={handleLeave}
         playerArea={
@@ -116,10 +137,7 @@ export default function RoomPage() {
         chat={<ChatPanel messages={messages} currentUserId={user.id} onSend={sendChat} />}
       >
         {gameState ? (
-          <FakeGameView
-            view={gameState.view as import('@platform/game-fake').FakePlayerView}
-            onPing={() => sendGameAction({ type: 'PING' })}
-          />
+          renderGameView(gameState.view)
         ) : (
           <p className="text-center text-white/50">در حال دریافت وضعیت بازی…</p>
         )}
@@ -140,7 +158,7 @@ export default function RoomPage() {
         connectionStatus={connectionStatus}
         messages={messages}
         gameMinPlayers={minPlayers}
-        gameName="بازی نمایشی"
+        gameName={gameName}
         onReady={setReady}
         onStart={handleStart}
         onLeave={handleLeave}

@@ -75,4 +75,15 @@ describe('/games', () => {
     await waitFor(() => expect(screen.getByText('ظرفیت اتاق تکمیل شده.')).toBeInTheDocument());
     expect(screen.queryByText('raw backend text')).not.toBeInTheDocument();
   });
+
+  test('once the server registers mafia it becomes a playable card instead of “coming soon”', async () => {
+    fetchGamesMock.mockResolvedValue([
+      { id: 'fake-game', name: 'بازی آزمایشی', description: 'x', minPlayers: 2, maxPlayers: 8 },
+      { id: 'mafia', name: 'مافیا', description: 'x', minPlayers: 6, maxPlayers: 20 },
+    ]);
+    render(<GamesPage />);
+    await waitFor(() => expect(screen.getByText('مافیا')).toBeInTheDocument());
+    expect(screen.getAllByRole('button', { name: 'بازی کن' })).toHaveLength(2);
+    expect(screen.getAllByText('به‌زودی')).toHaveLength(2);
+  });
 });
