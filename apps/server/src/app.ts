@@ -3,6 +3,7 @@ import fastifyCookie from '@fastify/cookie';
 import { Server as SocketIOServer } from 'socket.io';
 import { GameRegistry } from '@platform/game-engine';
 import { FakeGameDefinition } from '@platform/game-fake';
+import { MafiaGameDefinition } from '@platform/game-mafia';
 import type { ClientToServerEvents, ServerToClientEvents } from '@platform/types';
 import { registerAuthRoutes } from './plugins/auth.js';
 import { registerRoomRoutes } from './plugins/rooms.js';
@@ -31,6 +32,7 @@ export async function createServer(): Promise<{ app: FastifyInstance; io: AppIO 
     // This is the ONLY place a game module is imported by the server.
     // Room/lobby/auth code never imports a concrete game.
     GameRegistry.register(FakeGameDefinition);
+    GameRegistry.register(MafiaGameDefinition);
     gameRegistered = true;
   }
 
