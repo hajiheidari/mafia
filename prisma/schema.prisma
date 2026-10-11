@@ -1,0 +1,202 @@
+// Prisma schema for the platform's Core tables.
+//
+// Rule (see ARCHITECTURE.md §16 / §6): no table here may be specific to a
+// single game (e.g. no "MafiaRole" table). Per-game data lives inside
+// GameSession.state (JSONB) and GameEvent.payload (JSONB); a game module
+// that truly needs its own relational tables gets a separate, prefixed
+// schema later — never mixed into these core tables.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// --- Users & Auth ---------------------------------------------------
+
+model User {
+  id          String   @id @default(uuid())
+  isGuest     Boolean  @default(true)
+  username    String?  @unique
+  displayName String
+  avatarUrl   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  authMethods    AuthMethod[]
+  roomsHosted    Room[]         @relation("RoomHost")
+  roomMembers    RoomMember[]
+  chatMessages   ChatMessage[]
+  gameStatistics GameStatistic[]
+
+  @@map("users")
+}
+
+// One row per login method a user has connected. A guest who later verifies
+// a phone number gets a new AuthMethod row on the SAME userId — not a new
+// user. See ARCHITECTURE.md §1.
+model AuthMethod {
+  id         String   @id @default(uuid())
+  userId     String
+  provider   AuthProvider
+  providerId String // phone number / email / google sub / etc. Guest provider stores the guest session id.
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerId])
+  @@index([userId])
+  @@map("auth_methods")
+}
+
+enum AuthProvider {
+  GUEST
+  PHONE
+  EMAIL
+  GOOGLE
+  APPLE
+}
+
+// --- Rooms & Membership -----------------------------------------------
+
+model Room {
+  id         String         @id @default(uuid())
+  code       String         @unique // short shareable code, e.g. ABCD12
+  hostUserId String
+  gameId     String? // GameRegistry id — nullable until a game is chosen
+  status     RoomStatus     @default(WAITING)
+  visibility RoomVisibility @default(PRIVATE)
+  maxPlayers Int            @default(10)
+
+  // Reserved for future matchmaking/ranked rooms — unused in Phase 1.
+  // See ARCHITECTURE.md §5.
+  skillRating  Int?
+  queueStatus  String?
+
+  config    Json     @default("{}") // game-specific room settings (JSONB, opaque to core)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  host     User          @relation("RoomHost", fields: [hostUserId], references: [id])
+  members  RoomMember[]
+  sessions GameSession[]
+  messages ChatMessage[]
+
+  @@map("rooms")
+}
+
+enum RoomStatus {
+  WAITING
+  STARTING
+  IN_GAME
+  PAUSED
+  FINISHED
+  CLOSED
+}
+
+enum RoomVisibility {
+  PRIVATE
+  PUBLIC
+}
+
+// Deliberately NOT named "RoomPlayer" — being connected to a room does not
+// imply being a player. See ARCHITECTURE.md §4.
+model RoomMember {
+  id          String   @id @default(uuid())
+  roomId      String
+  userId      String
+  role        RoomRole @default(PLAYER)
+  isReady     Boolean  @default(false)
+  isConnected Boolean  @default(true)
+  joinedAt    DateTime @default(now())
+  leftAt      DateTime?
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@index([roomId])
+  @@map("room_members")
+}
+
+// Only HOST and PLAYER are enforced in Phase 1. The rest exist so the data
+// model doesn't block future roles — see ARCHITECTURE.md §4.
+enum RoomRole {
+  HOST
+  PLAYER
+  SPECTATOR
+  NARRATOR
+  MODERATOR
+  ADMIN
+}
+
+// --- Game Sessions & Events --------------------------------------------
+
+model GameSession {
+  id           String    @id @default(uuid())
+  roomId       String
+  gameId       String // GameRegistry id, e.g. "fake-game" / "mafia"
+  stateVersion Int       @default(0)
+  phase        String? // free-form, meaningful only to the owning game module
+  state        Json // full authoritative state — SERVER-ONLY, never sent to clients as-is
+  startedAt    DateTime  @default(now())
+  endedAt      DateTime?
+
+  room   Room        @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  events GameEvent[]
+
+  @@index([roomId])
+  @@map("game_sessions")
+}
+
+// Append-only domain event log. Powers debugging, analytics, reconnection
+// sync, and (later) replay/spectator/tournament features without further
+// schema changes. See ARCHITECTURE.md §3.
+model GameEvent {
+  id        String   @id @default(uuid())
+  sessionId String
+  playerId  String? // null for system-generated events (e.g. GAME_FINISHED)
+  type      String
+  payload   Json     @default("{}")
+  createdAt DateTime @default(now())
+
+  session GameSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@map("game_events")
+}
+
+// --- Chat ---------------------------------------------------------------
+
+model ChatMessage {
+  id        String   @id @default(uuid())
+  roomId    String
+  userId    String
+  text      String
+  createdAt DateTime @default(now())
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, createdAt])
+  @@map("chat_messages")
+}
+
+// --- Statistics -----------------------------------------------------
+
+model GameStatistic {
+  id          String   @id @default(uuid())
+  userId      String
+  gameId      String
+  gamesPlayed Int      @default(0)
+  gamesWon    Int      @default(0)
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, gameId])
+  @@map("game_statistics")
+}

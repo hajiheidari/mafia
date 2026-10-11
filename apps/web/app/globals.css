@@ -1,0 +1,15 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body {
+  background-color: #0B0B14;
+  color: #F5F5FA;
+}
+
+/* NOTE: Vazirmatn will be self-hosted (not Google Fonts) in a later
+   milestone so the app works fully offline / without third-party font
+   requests. Fallback stack below is a reasonable Persian-friendly default. */
+body {
+  font-family: 'Vazirmatn', Tahoma, 'Segoe UI', system-ui, sans-serif;
+}

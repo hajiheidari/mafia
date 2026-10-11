@@ -1,0 +1,37 @@
+{
+  "name": "@platform/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@platform/types": "*",
+    "@platform/ui": "*",
+    "@platform/i18n": "*",
+    "next": "14.2.35",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "socket.io-client": "^4.8.0",
+    "@platform/game-fake": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.0",
+    "@types/node": "^22.7.5",
+    "tailwindcss": "^3.4.13",
+    "postcss": "^8.4.47",
+    "autoprefixer": "^10.4.20",
+    "@testing-library/react": "^16.0.1",
+    "@testing-library/jest-dom": "^6.6.2",
+    "@testing-library/user-event": "^14.5.2",
+    "jsdom": "^25.0.1",
+    "vitest": "^2.1.9",
+    "@vitejs/plugin-react": "^4.3.3"
+  }
+}
