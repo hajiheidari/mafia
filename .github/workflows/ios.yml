@@ -61,7 +61,7 @@ jobs:
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
       APPLE_TEAM_ID: RGR5G6VN69
       IOS_BUNDLE_ID: com.espadna.mafia
-      IOS_APP_NAME: Mafia Narrator
+      IOS_APP_NAME: "Mafia God: Party Narrator"
     steps:
       - name: API key file
         env:

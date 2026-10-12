@@ -1,8 +1,8 @@
-# Mafia narrator — Android (Cafe Bazaar) and iOS
+# Mafia God (گاد مافیا) — Android (Cafe Bazaar) and iOS
 
 The apps are the web tool (`web/tool/`) inside a Capacitor shell: same files,
 packed into the app, works fully offline. Bundle id / package:
-`com.espadna.mafia`. Home-screen name: «مافیا».
+`com.espadna.mafia`. Home-screen name: «گاد مافیا»; App Store name: "Mafia God: Party Narrator".
 
 ```bash
 cd mobile

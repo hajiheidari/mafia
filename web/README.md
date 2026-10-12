@@ -1,4 +1,4 @@
-# Mafia narrator tool — web
+# Mafia God (گاد مافیا) — web
 
 | Address | What | Source |
 |---|---|---|

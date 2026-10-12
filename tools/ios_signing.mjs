@@ -18,7 +18,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const BUNDLE_ID = process.env.IOS_BUNDLE_ID || 'com.espadna.mafia';
-const APP_NAME = process.env.IOS_APP_NAME || 'Mafia Narrator';
+const APP_NAME = process.env.IOS_APP_NAME || 'Mafia God';
 
 // Team keys sign with iss = Issuer ID; Individual keys use sub = "user" and no
 // iss. The kind that works is remembered after the first successful call.

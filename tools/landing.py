@@ -30,9 +30,9 @@ MAFIA_TEAM = {'godfather', 'lecter', 'mafia'}
 
 T = {
     'fa': {
-        'title': 'گرداننده‌ی مافیا | ابزار رایگان بازی مافیا',
+        'title': 'گاد مافیا | ابزار رایگان گرداننده‌ی بازی مافیا',
         'desc': 'ابزار رایگان گرداننده‌ی بازی مافیا: پخش تصادفی نقش با یک گوشی، مدیریت شب و روز، تایمر صحبت و شمارش رأی. بدون نصب، حتی بدون اینترنت.',
-        'brand': 'گرداننده‌ی مافیا', 'by': 'از اسپادنا',
+        'brand': 'گاد مافیا', 'by': 'از اسپادنا',
         'nav': ['چطور کار می‌کند', 'نقش‌ها', 'یک دور بازی', 'سؤالات'],
         'start': 'شروع بازی', 'how_btn': 'چطور کار می‌کند؟',
         'eyebrow': 'رایگان · بدون نصب · بدون اینترنت',
@@ -74,13 +74,13 @@ T = {
                 ('قوانین با قوانین ما فرق دارد، چه کنم؟', 'ترکیب نقش‌ها قابل تغییر است و گرداننده هر وقت بخواهد می‌تواند بازیکنی را دستی حذف یا به بازی برگرداند.')],
         'final_h': 'شب اول نزدیک است', 'final_sub': 'دوستانت را جمع کن و بازی را شروع کن.',
         'footer': 'بخشی از <a href="/fa/">اسپادنا</a>', 'privacy': 'حریم خصوصی', 'home': '/fa/',
-        'og_title': 'گرداننده‌ی مافیا 🕵️ مافیای دورهمی را با یک گوشی بگردان',
+        'og_title': 'گاد مافیا 🕵️ مافیای دورهمی را با یک گوشی بگردان',
         'note': '',
     },
     'en': {
-        'title': 'Mafia Narrator | Free host tool for the Mafia party game',
+        'title': 'Mafia God: Party Narrator | Free host tool for the Mafia game',
         'desc': 'Free narrator tool for the Mafia (Werewolf) party game: deal secret roles on one phone, run night and day, talk timer and vote counter. No install, works offline.',
-        'brand': 'Mafia Narrator', 'by': 'by Espadna',
+        'brand': 'Mafia God', 'by': 'by Espadna',
         'nav': ['How it works', 'Roles', 'A round', 'FAQ'],
         'start': 'Start a game', 'how_btn': 'How does it work?',
         'eyebrow': 'Free · No install · Works offline',
@@ -123,13 +123,13 @@ T = {
                 ('Our house rules are different. What now?', 'Pick any role mix, and the narrator can remove or bring back a player by hand at any time.')],
         'final_h': 'The first night is coming', 'final_sub': 'Gather your friends and start.',
         'footer': 'Part of <a href="/">Espadna</a>', 'privacy': 'Privacy', 'home': '/',
-        'og_title': 'Mafia Narrator 🕵️ Host your Mafia night with one phone',
+        'og_title': 'Mafia God 🕵️ Host your Mafia night with one phone',
         'note': 'The tool’s interface is in Persian.',
     },
     'ar': {
-        'title': 'راوي المافيا | أداة مجانية لإدارة لعبة المافيا',
+        'title': 'Mafia God | أداة مجانية لراوي لعبة المافيا',
         'desc': 'أداة مجانية لراوي لعبة المافيا: توزيع الأدوار سرًا على هاتف واحد، إدارة الليل والنهار، مؤقت للكلام وعدّاد للتصويت. دون تثبيت، وتعمل دون إنترنت.',
-        'brand': 'راوي المافيا', 'by': 'من إسبادنا',
+        'brand': 'Mafia God', 'by': 'من إسبادنا',
         'nav': ['كيف تعمل', 'الأدوار', 'جولة اللعب', 'الأسئلة'],
         'start': 'ابدأ اللعب', 'how_btn': 'كيف تعمل؟',
         'eyebrow': 'مجانية · دون تثبيت · دون إنترنت',
@@ -172,28 +172,28 @@ T = {
                 ('قواعدنا مختلفة، ماذا نفعل؟', 'اختر أي توزيعة أدوار، ويمكن للراوي إخراج لاعب أو إعادته يدويًا في أي وقت.')],
         'final_h': 'الليلة الأولى تقترب', 'final_sub': 'اجمع أصدقاءك وابدأ اللعب.',
         'footer': 'جزء من <a href="/ar/">إسبادنا</a>', 'privacy': 'الخصوصية', 'home': '/ar/',
-        'og_title': 'راوي المافيا 🕵️ أدِر سهرة المافيا بهاتف واحد',
+        'og_title': 'Mafia God 🕵️ أدِر سهرة المافيا بهاتف واحد',
         'note': 'واجهة الأداة بالفارسية.',
     },
 }
 
 PRIVACY = {
-    'en': ('Privacy policy · Mafia Narrator', 'Privacy policy', [
-        ('What we collect', 'Nothing. Mafia Narrator has no accounts, no ads, no analytics and no tracking.'),
+    'en': ('Privacy policy · Mafia God', 'Privacy policy', [
+        ('What we collect', 'Nothing. Mafia God has no accounts, no ads, no analytics and no tracking.'),
         ('Your game data', 'Player names, roles and game progress are stored only on your device (in the browser or app storage) so a game can continue after the page is closed. They are never sent to us or to anyone else. Clearing the app data or browser data deletes them.'),
         ('Permissions', 'The app asks for no permissions. Vibration is used only for the talk timer.'),
         ('Children', 'The app collects no personal information from anyone, including children.'),
         ('Contact', 'Questions: <a href="mailto:sepanta.hesaban@gmail.com">sepanta.hesaban@gmail.com</a>'),
     ]),
-    'fa': ('حریم خصوصی · گرداننده‌ی مافیا', 'سیاست حریم خصوصی', [
-        ('چه اطلاعاتی جمع می‌کنیم', 'هیچ. گرداننده‌ی مافیا حساب کاربری، تبلیغ، آمارگیری و ردیابی ندارد.'),
+    'fa': ('حریم خصوصی · گاد مافیا', 'سیاست حریم خصوصی', [
+        ('چه اطلاعاتی جمع می‌کنیم', 'هیچ. گاد مافیا حساب کاربری، تبلیغ، آمارگیری و ردیابی ندارد.'),
         ('اطلاعات بازی شما', 'اسم بازیکن‌ها، نقش‌ها و وضعیت بازی فقط روی همان دستگاه (حافظه‌ی مرورگر یا اپ) ذخیره می‌شود تا اگر صفحه بسته شد بازی ادامه پیدا کند. این اطلاعات هرگز برای ما یا هیچ‌کس دیگری فرستاده نمی‌شود و با پاک کردن داده‌های اپ یا مرورگر پاک می‌شود.'),
         ('مجوزها', 'اپ هیچ مجوزی نمی‌خواهد. لرزش فقط برای تایمر صحبت استفاده می‌شود.'),
         ('کودکان', 'اپ از هیچ‌کس، از جمله کودکان، اطلاعات شخصی جمع نمی‌کند.'),
         ('تماس', 'سؤال‌ها: <a href="mailto:sepanta.hesaban@gmail.com">sepanta.hesaban@gmail.com</a>'),
     ]),
-    'ar': ('الخصوصية · راوي المافيا', 'سياسة الخصوصية', [
-        ('ما الذي نجمعه', 'لا شيء. لا يحتوي راوي المافيا على حسابات أو إعلانات أو إحصاءات أو تتبّع.'),
+    'ar': ('الخصوصية · Mafia God', 'سياسة الخصوصية', [
+        ('ما الذي نجمعه', 'لا شيء. لا يحتوي Mafia God على حسابات أو إعلانات أو إحصاءات أو تتبّع.'),
         ('بيانات لعبتك', 'تُحفظ أسماء اللاعبين والأدوار وحالة اللعبة على جهازك فقط (في ذاكرة المتصفح أو التطبيق) لتستمر اللعبة بعد إغلاق الصفحة. لا تُرسل إلينا أو إلى أي جهة أخرى أبدًا، وتُحذف بحذف بيانات التطبيق أو المتصفح.'),
         ('الأذونات', 'لا يطلب التطبيق أي إذن. يُستخدم الاهتزاز لمؤقت الكلام فقط.'),
         ('الأطفال', 'لا يجمع التطبيق أي معلومات شخصية من أي أحد، بمن فيهم الأطفال.'),
