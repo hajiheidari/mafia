@@ -37,7 +37,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm ci
+      # --omit=dev: the icon generator (@capacitor/assets) is not needed to build.
+      - run: npm ci --omit=dev
       - run: npm run www
       - run: npx cap sync android
 

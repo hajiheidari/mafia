@@ -99,7 +99,7 @@ jobs:
       - name: Web files into the app
         working-directory: mobile
         run: |
-          npm ci
+          npm ci --omit=dev
           npm run www
           npx cap sync ios
 
