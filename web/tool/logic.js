@@ -122,6 +122,14 @@ export function fitScenario(roles, n) {
   return counts;
 }
 
+/** Smallest number of players for which a scenario is playable (0 if never, up to MAX_PLAYERS). */
+export function minPlayersFor(roles) {
+  for (let n = MIN_PLAYERS; n <= MAX_PLAYERS; n++) {
+    if (!validateSetup(n, fitScenario(roles, n))) return n;
+  }
+  return 0;
+}
+
 /** Independents count on the town side for the parity rule. */
 export function teamCounts(counts) {
   let mafia = 0;

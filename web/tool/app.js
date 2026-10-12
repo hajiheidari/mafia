@@ -1,6 +1,6 @@
 import {
   ROLES, ROLE_ORDER, MIN_PLAYERS, MAX_PLAYERS, UNIQUE_KINDS, KIND_LABEL, TEAMS,
-  suggestRoles, fitScenario, teamCounts, validateSetup, dealRoles, nightSteps, actorsFor, targetsFor,
+  suggestRoles, fitScenario, minPlayersFor, teamCounts, validateSetup, dealRoles, nightSteps, actorsFor, targetsFor,
   resolveNight, winner, voteThreshold, teamOf, detectivePositive, setExtraRoles, allRoleIds, toFa,
 } from './logic.js';
 import { SCENARIOS, SCENARIO_ROLES } from './scenarios.js';
@@ -121,7 +121,7 @@ function freshState() {
   let names = [];
   try { names = JSON.parse(localStorage.getItem(NAMES_KEY) || '[]'); } catch { /* ignore */ }
   return {
-    view: 'players', names, counts: null, players: [], memory: {},
+    view: 'setup', playerCount: names.length >= MIN_PLAYERS ? names.length : 10, names, counts: null, players: [], memory: {},
     round: 1, phase: 'day', night: null, report: null, votes: {}, log: [],
     showRoles: false, revealId: null, revealOpen: false, menuId: null, winner: null,
     scenarioId: null, roleDefs: [], editRole: null, settingsFrom: null,
@@ -129,6 +129,7 @@ function freshState() {
 }
 
 let state = load() || freshState();
+if (!state.playerCount) state.playerCount = state.names.length >= MIN_PLAYERS ? state.names.length : 10;
 syncRoles();
 applyBrand();
 const undoStack = [];
@@ -241,7 +242,7 @@ const roleLabel = (id) => `${roleOf(id).icon} ${esc(roleOf(id).name)}`;
 
 function header(title, back, end) {
   const right = end
-    ?? (undoStack.length && !['players', 'settings', 'role-edit'].includes(state.view)
+    ?? (undoStack.length && !['setup', 'players', 'settings', 'role-edit'].includes(state.view)
       ? '<button class="icon-btn" data-action="undo" aria-label="برگرداندن آخرین کار">↶</button>'
       : '<span></span>');
   return `
@@ -252,21 +253,68 @@ function header(title, back, end) {
   </header>`;
 }
 
-function viewPlayers() {
-  const n = state.names.length;
+/** Scenarios to offer for n players: { id, name, note, min }, playable ones only. */
+function scenarioOptions(n) {
+  const all = [
+    { id: 'auto', name: 'پیشنهاد خودکار', note: 'ترکیب ساده‌ی پدرخوانده، دکتر و کارآگاه؛ برای هر تعداد بازیکن.', min: MIN_PLAYERS },
+    ...library.scenarios.map((sc) => ({ id: `my:${sc.id}`, name: `⭐ ${sc.name}`, note: 'سناریوی ذخیره‌شده‌ی خودتان', min: minPlayersFor(sc.roles) })),
+    ...SCENARIOS.map((sc) => ({ id: `b:${sc.id}`, name: sc.name, note: `${sc.summary} (دک استاندارد ${toFa(sc.players)} نفر)`, min: minPlayersFor(sc.roles) })),
+  ];
+  return { fit: all.filter((o) => o.min && o.min <= n), more: all.filter((o) => !o.min || o.min > n) };
+}
+function scenarioName(id) {
+  if (!id || id === 'auto') return 'پیشنهاد خودکار';
+  if (id.startsWith('my:')) return library.scenarios.find((x) => `my:${x.id}` === id)?.name || 'سناریوی من';
+  return SCENARIOS.find((x) => `b:${x.id}` === id)?.name || '';
+}
+
+function viewSetup() {
+  const n = state.playerCount;
+  const { fit, more } = scenarioOptions(n);
   const gear = '<button class="icon-btn" data-action="open-settings" aria-label="تنظیمات گروه">⚙︎</button>';
-  return `${header('بازیکن‌ها', null, gear)}
+  const minMore = more.filter((o) => o.min).map((o) => o.min);
+  return `${header('شروع بازی', null, gear)}
   <main class="pad">
     ${!library.brand.name && !library.brand.logo ? `
     <button class="card hint" data-action="open-settings">
-      <b>اپ را مال گروه خودتان کنید</b>
+      <b>شخصی‌ساز اپ مافیا برای ایونت خودتان</b>
       <small>اسم و لوگوی گروه، رنگ، نقش‌ها و سناریوهای خودتان را در تنظیمات بگذارید.</small>
     </button>` : ''}
+    <section class="card count-card">
+      <p class="label">چند نفرید؟</p>
+      <div class="stepper big">
+        <button class="icon-btn" data-action="count-inc" aria-label="یک نفر بیشتر" ${n >= MAX_PLAYERS ? 'disabled' : ''}>+</button>
+        <b>${toFa(n)}</b>
+        <button class="icon-btn" data-action="count-dec" aria-label="یک نفر کمتر" ${n <= MIN_PLAYERS ? 'disabled' : ''}>−</button>
+      </div>
+    </section>
+    <p class="label">سناریو را انتخاب کنید</p>
+    <ul class="list">
+      ${fit.map((o) => `
+        <li><button class="item scenario-item ${state.scenarioId === o.id ? 'on' : ''}" data-action="pick-scenario" data-id="${o.id}">
+          <span class="grow"><b>${esc(o.name)}</b><small>${esc(o.note)}</small></span><span class="go">←</span>
+        </button></li>`).join('')}
+    </ul>
+    ${minMore.length ? `<p class="muted small-text center">${toFa(more.length)} سناریوی دیگر از ${toFa(Math.min(...minMore))} نفر به بالا باز می‌شود.</p>` : ''}
+  </main>`;
+}
+
+function viewPlayers() {
+  const n = state.names.length;
+  const need = state.playerCount;
+  const status = n === need
+    ? `${toFa(n)} بازیکن · آماده‌اید.`
+    : n < need
+      ? `${toFa(n)} از ${toFa(need)} اسم وارد شده؛ ${toFa(need - n)} اسم دیگر لازم است.`
+      : `${toFa(n)} اسم دارید ولی ${toFa(need)} نفرید؛ ${toFa(n - need)} اسم را حذف کنید یا برگردید و تعداد را عوض کنید.`;
+  return `${header('بازیکن‌ها', 'to-setup')}
+  <main class="pad">
+    <p class="muted small-text">سناریو: <b>${esc(scenarioName(state.scenarioId))}</b> · ${toFa(need)} نفر</p>
     <form class="row" data-form="add-name">
-      <input id="name-input" name="name" maxlength="24" autocomplete="off" placeholder="اسم بازیکن" aria-label="اسم بازیکن">
-      <button class="btn primary" type="submit">افزودن</button>
+      <input id="name-input" name="name" maxlength="24" autocomplete="off" placeholder="اسم بازیکن" aria-label="اسم بازیکن" ${n >= need ? 'disabled' : ''}>
+      <button class="btn primary" type="submit" ${n >= need ? 'disabled' : ''}>افزودن</button>
     </form>
-    <p class="muted">${toFa(n)} بازیکن · حداقل ${toFa(MIN_PLAYERS)} نفر. اسم‌ها برای دفعه‌ی بعد ذخیره می‌شوند.</p>
+    <p class="${n > need ? 'error' : 'muted'}">${status} اسم‌ها برای دفعه‌ی بعد ذخیره می‌شوند.</p>
     <ol class="list">
       ${state.names.map((nm, i) => `
         <li class="item"><span class="num">${toFa(i + 1)}</span><span class="grow">${esc(nm)}</span>
@@ -275,20 +323,16 @@ function viewPlayers() {
     ${n ? '<button class="btn ghost small" data-action="clear-names">پاک کردن همه</button>' : ''}
   </main>
   <footer class="dock">
-    <button class="btn primary block" data-action="to-roles" ${n < MIN_PLAYERS ? 'disabled' : ''}>ادامه: انتخاب نقش‌ها</button>
+    <button class="btn primary block" data-action="to-roles" ${n !== need ? 'disabled' : ''}>ادامه: نقش‌ها</button>
   </footer>`;
 }
 
-function scenarioChips() {
-  const chip = (id, label, extra = '') =>
-    `<button class="chip-btn ${state.scenarioId === id ? 'on' : ''}" data-action="use-scenario" data-id="${id}">${label}${extra}</button>`;
+function scenarioCard() {
   return `
   <section class="card">
-    <p class="label">سناریو</p>
-    <div class="presets">
-      ${chip('auto', 'پیشنهاد خودکار')}
-      ${library.scenarios.map((sc) => chip(`my:${sc.id}`, `⭐ ${esc(sc.name)}`)).join('')}
-      ${SCENARIOS.map((sc) => chip(`b:${sc.id}`, esc(sc.name))).join('')}
+    <div class="row between">
+      <p class="label">سناریو: <b>${esc(scenarioName(state.scenarioId))}</b></p>
+      <button class="btn ghost small" data-action="to-setup">تغییر سناریو</button>
     </div>
     ${scenarioNote()}
   </section>`;
@@ -318,9 +362,9 @@ function roleRow(r, count) {
     <span class="ricon">${role.icon}</span>
     <span class="grow"><b>${esc(role.name)}</b>${tag}<small>${esc(role.desc)}</small></span>
     <span class="stepper">
-      <button class="icon-btn small" data-action="dec" data-role="${r}" aria-label="کم کردن">−</button>
-      <b>${toFa(count)}</b>
       <button class="icon-btn small" data-action="inc" data-role="${r}" aria-label="زیاد کردن">+</button>
+      <b>${toFa(count)}</b>
+      <button class="icon-btn small" data-action="dec" data-role="${r}" aria-label="کم کردن">−</button>
     </span>
   </li>`;
 }
@@ -338,7 +382,7 @@ function viewRoles() {
   const rest = ids.filter((r) => !used.includes(r) && (!ROLES[r].scenario || ROLES[r].scenario === sid));
   return `${header('نقش‌ها', 'to-players')}
   <main class="pad">
-    ${scenarioChips()}
+    ${scenarioCard()}
     <div class="summary">
       <span class="chip mafia">مافیا ${toFa(mafia)}</span>
       <span class="chip town">شهر ${toFa(town)}</span>
@@ -488,9 +532,9 @@ function playerRow(p) {
     </button>
     ${p.alive && state.phase === 'day' ? `
       <span class="stepper">
-        <button class="icon-btn small" data-action="vote-dec" data-id="${p.id}" aria-label="کم کردن رأی">−</button>
-        <b class="votes ${votes >= voteThreshold(state.players) ? 'hot' : ''}">${toFa(votes)}</b>
         <button class="icon-btn small" data-action="vote-inc" data-id="${p.id}" aria-label="افزودن رأی">+</button>
+        <b class="votes ${votes >= voteThreshold(state.players) ? 'hot' : ''}">${toFa(votes)}</b>
+        <button class="icon-btn small" data-action="vote-dec" data-id="${p.id}" aria-label="کم کردن رأی">−</button>
       </span>` : ''}
   </li>
   ${open ? `
@@ -627,13 +671,16 @@ function viewEnd() {
   </footer>`;
 }
 
+let shownView = null;
 function render() {
   const views = {
-    players: viewPlayers, roles: viewRoles, reveal: viewReveal, game: viewGame, night: viewNight,
+    setup: viewSetup, players: viewPlayers, roles: viewRoles, reveal: viewReveal, game: viewGame, night: viewNight,
     end: viewEnd, settings: viewSettings, 'role-edit': viewRoleEdit,
   };
-  app.innerHTML = (views[state.view] || viewPlayers)();
+  app.innerHTML = (views[state.view] || viewSetup)();
   renderTimer();
+  if (shownView !== state.view) window.scrollTo(0, 0);
+  shownView = state.view;
   if (state.view === 'players') document.getElementById('name-input')?.focus();
 }
 
@@ -694,19 +741,20 @@ const actions = {
   undo,
   'remove-name': (el) => update((s) => s.names.splice(Number(el.dataset.i), 1)),
   'clear-names': () => confirm('همه‌ی اسم‌ها پاک شود؟') && update((s) => { s.names = []; }),
+  'to-setup': () => update((s) => { s.view = 'setup'; }),
+  'count-inc': () => update((s) => { s.playerCount = Math.min(MAX_PLAYERS, s.playerCount + 1); }),
+  'count-dec': () => update((s) => { s.playerCount = Math.max(MIN_PLAYERS, s.playerCount - 1); }),
+  'pick-scenario': (el) => update((s) => {
+    s.scenarioId = el.dataset.id;
+    s.counts = scenarioCounts(el.dataset.id, s.playerCount);
+    s.view = 'players';
+  }),
   'to-roles': () => update((s) => {
     const n = s.names.length;
-    if (!s.counts || teamCounts(s.counts).total !== n) {
-      s.counts = scenarioCounts(s.scenarioId || 'auto', n);
-      if (!s.scenarioId) s.scenarioId = 'auto';
-    }
+    if (!s.counts || teamCounts(s.counts).total !== n) s.counts = scenarioCounts(s.scenarioId || 'auto', n);
     s.view = 'roles';
   }),
   'to-players': () => update((s) => { s.view = 'players'; }),
-  'use-scenario': (el) => update((s) => {
-    s.scenarioId = el.dataset.id;
-    s.counts = scenarioCounts(el.dataset.id, s.names.length);
-  }),
   inc: (el) => update((s) => changeCount(s, el.dataset.role, +1)),
   dec: (el) => update((s) => changeCount(s, el.dataset.role, -1)),
   'save-scenario': () => {
@@ -741,7 +789,7 @@ const actions = {
     });
   },
   'open-settings': () => update((s) => { s.settingsFrom = s.view; s.view = 'settings'; }),
-  'close-settings': () => update((s) => { s.view = s.settingsFrom && s.settingsFrom !== 'settings' ? s.settingsFrom : 'players'; }),
+  'close-settings': () => update((s) => { s.view = s.settingsFrom && s.settingsFrom !== 'settings' ? s.settingsFrom : 'setup'; }),
   'remove-logo': () => {
     library.brand.logo = '';
     saveLibrary();
@@ -843,8 +891,8 @@ const actions = {
   }, { undoable: true }),
   'continue-anyway': () => update((s) => { s.view = 'game'; s.winner = null; }),
   rematch: () => update(startNewDeal),
-  'new-game-setup': () => update((s) => { s.view = 'players'; }),
-  'new-game': () => confirm('بازی فعلی تمام شود و به تنظیمات برگردیم؟') && update((s) => { s.view = 'players'; }),
+  'new-game-setup': () => update((s) => { s.view = 'setup'; }),
+  'new-game': () => confirm('بازی فعلی تمام شود و به تنظیمات برگردیم؟') && update((s) => { s.view = 'setup'; }),
   'timer-toggle': () => (timer.running ? stopTimer() : startTimer()),
   'timer-reset': () => setTimer(timer.total),
   'timer-set': (el) => { setTimer(Number(el.dataset.s)); render(); },
@@ -927,7 +975,7 @@ app.addEventListener('submit', (e) => {
   const name = input.value.trim().replace(/\s+/g, ' ');
   if (!name) return;
   if (state.names.includes(name)) { alert('این اسم قبلاً اضافه شده.'); return; }
-  if (state.names.length >= MAX_PLAYERS) return;
+  if (state.names.length >= state.playerCount) return;
   update((s) => s.names.push(name));
 });
 

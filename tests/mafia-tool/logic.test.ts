@@ -172,6 +172,10 @@ describe('built-in scenarios', () => {
     for (const r of Object.keys(sc.roles)) expect(L.ROLES[r], r).toBeDefined();
     expect(L.validateSetup(sc.players, L.fitScenario(sc.roles, sc.players))).toBeNull();
     expect(L.validateSetup(12, L.fitScenario(sc.roles, 12))).toBeNull();
+    const min = L.minPlayersFor(sc.roles);
+    expect(min).toBeGreaterThan(0);
+    expect(min).toBeLessThanOrEqual(sc.players);
+    expect(L.validateSetup(min - 1, L.fitScenario(sc.roles, min - 1))).not.toBeNull();
     L.setExtraRoles([]);
   });
 
