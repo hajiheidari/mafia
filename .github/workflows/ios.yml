@@ -67,8 +67,13 @@ jobs:
         env:
           ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
         run: |
+          # Pasted secrets often end with a space or newline: use trimmed copies.
+          key_id=$(printf '%s' "$ASC_KEY_ID" | tr -d ' \n\r\t')
+          issuer_id=$(printf '%s' "$ASC_ISSUER_ID" | tr -d ' \n\r\t')
+          echo "KEY_ID=$key_id" >> "$GITHUB_ENV"
+          echo "ISSUER_ID=$issuer_id" >> "$GITHUB_ENV"
           mkdir -p ~/.appstoreconnect/private_keys
-          key_file=~/.appstoreconnect/private_keys/AuthKey_"$ASC_KEY_ID".p8
+          key_file=~/.appstoreconnect/private_keys/AuthKey_"$key_id".p8
           # Standard PEM (64-character lines) whatever form the secret has:
           # Xcode's parser rejects anything else.
           body=$(sed '/-----/d' <<<"$ASC_PRIVATE_KEY" | tr -d ' \n\r\t')
@@ -178,9 +183,9 @@ jobs:
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
             -exportPath "$RUNNER_TEMP/export" \
-            -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_"$ASC_KEY_ID".p8 \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID" 2>&1 | tee "$RUNNER_TEMP/export.log" \
+            -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_"$KEY_ID".p8 \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID" 2>&1 | tee "$RUNNER_TEMP/export.log" \
             || { grep -E "error|Error|failed" "$RUNNER_TEMP/export.log" | tail -15 | sed 's/^/::error::/'
                  echo "::error::If it says the app does not exist: create it in App Store Connect with bundle id $IOS_BUNDLE_ID, then run again."
                  exit 1; }
