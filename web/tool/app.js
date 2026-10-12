@@ -297,7 +297,11 @@ function scenarioNote() {
   const id = state.scenarioId || '';
   if (id.startsWith('b:')) {
     const sc = SCENARIOS.find((x) => `b:${x.id}` === id);
-    if (sc) return `<p class="muted small-text">${esc(sc.summary)} (استاندارد: ${toFa(sc.players)} نفر)</p>`;
+    if (sc) {
+      const diff = state.names.length !== sc.players
+        ? ` شما ${toFa(state.names.length)} نفرید؛ شهروند ساده کم و زیاد شد، بقیه را خودتان تنظیم کنید.` : '';
+      return `<p class="muted small-text">${esc(sc.summary)} (دک استاندارد: ${toFa(sc.players)} نفر.${diff})</p>`;
+    }
   }
   if (id.startsWith('my:')) {
     return `<p class="muted small-text">سناریوی ذخیره‌شده‌ی خودتان. هر تغییری بدهید فقط برای همین بازی است؛ برای نگه داشتنش دوباره ذخیره کنید.</p>`;
@@ -327,8 +331,11 @@ function viewRoles() {
   const { mafia, town, total } = teamCounts(c);
   const error = validateSetup(n, c);
   const ids = allRoleIds();
-  const used = ids.filter((r) => (c[r] || 0) > 0 || r === 'citizen');
-  const rest = ids.filter((r) => !used.includes(r));
+  const sid = (state.scenarioId || '').startsWith('b:') ? state.scenarioId.slice(2) : null;
+  const rank = (r) => (r === 'citizen' ? 9 : { mafia: 0, town: 1, indep: 2 }[roleOf(r).team]);
+  const used = ids.filter((r) => (c[r] || 0) > 0 || r === 'citizen').sort((x, y) => rank(x) - rank(y));
+  // Other scenarios' roles stay out of the list; your own roles are always offered.
+  const rest = ids.filter((r) => !used.includes(r) && (!ROLES[r].scenario || ROLES[r].scenario === sid));
   return `${header('نقش‌ها', 'to-players')}
   <main class="pad">
     ${scenarioChips()}
@@ -372,6 +379,8 @@ function viewRoleEdit() {
       </label>
       ${!d.kind ? `<label class="check"><input type="checkbox" name="night" ${d.night ? 'checked' : ''}> شب بیدار می‌شود (در مراحل شب صدایش می‌زنیم)</label>` : ''}
       ${d.team === 'mafia' && d.kind !== 'godfather' ? `<label class="check"><input type="checkbox" name="detNeg" ${d.detNeg ? 'checked' : ''}> استعلام کارآگاه از او منفی است</label>` : ''}
+      ${d.team !== 'mafia' ? `<label class="check"><input type="checkbox" name="detPos" ${d.detPos ? 'checked' : ''}> استعلام کارآگاه از او مثبت است</label>` : ''}
+      <label class="check"><input type="checkbox" name="immune" ${d.immune ? 'checked' : ''}> تیر شب مافیا او را نمی‌کشد</label>
       <button class="btn primary block" type="submit">ذخیره‌ی نقش</button>
       ${!d.isNew ? '<button type="button" class="btn ghost small danger-text" data-action="delete-role">حذف این نقش</button>' : ''}
     </form>
@@ -535,6 +544,8 @@ function morningCard() {
   const secret = [];
   for (const s of r.saves) secret.push(`${nameOf(s.id)} توسط ${esc(stepName(s.by))} نجات پیدا کرد.`);
   if (r.shieldUsed) secret.push(`سپر ${esc(roleOf(byId(r.shieldUsed)?.role).name)} (${nameOf(r.shieldUsed)}) مصرف شد.`);
+  if (r.immuneHit) secret.push(`تیر مافیا به ${nameOf(r.immuneHit)} (${esc(roleOf(byId(r.immuneHit)?.role).name)}) اثر نکرد.`);
+  if (r.sniperNoEffect) secret.push(`تیر ${esc(stepName('sniper'))} به ${nameOf(r.sniperNoEffect)} اثر نکرد.`);
   if (r.sniperBackfired) secret.push(`${esc(stepName('sniper'))} به شهروند شلیک کرد و خودش حذف شد.`);
   for (const m of r.manual || []) secret.push(`${esc(roleOf(m.role).name)} ← ${nameOf(m.targetId)} (اثرش را خودتان اعمال کنید)`);
   return `
@@ -850,6 +861,8 @@ function readRoleForm() {
   d.kind = f.elements.kind.value;
   if (f.elements.night) d.night = f.elements.night.checked;
   if (f.elements.detNeg) d.detNeg = f.elements.detNeg.checked;
+  if (f.elements.detPos) d.detPos = f.elements.detPos.checked;
+  d.immune = f.elements.immune.checked;
 }
 
 app.addEventListener('click', (e) => {
@@ -893,10 +906,11 @@ app.addEventListener('submit', (e) => {
     const d = state.editRole;
     const name = d.name.trim().replace(/\s+/g, ' ');
     if (!name) return;
-    if (allRoleIds().some((r) => r !== d.id && ROLES[r].name === name)) { alert('نقشی با این اسم از قبل هست.'); return; }
+    if ([...ROLE_ORDER, ...library.roles.map((x) => x.id)].some((r) => r !== d.id && ROLES[r]?.name === name)) { alert('نقشی با این اسم از قبل هست.'); return; }
     const def = {
       id: d.id, name, icon: d.icon.trim() || (d.team === 'mafia' ? '🃏' : '🎴'), team: d.team,
       desc: d.desc.trim(), kind: d.kind || null, night: !d.kind && !!d.night, detNeg: d.team === 'mafia' && !!d.detNeg,
+      detPos: d.team !== 'mafia' && !!d.detPos, immune: !!d.immune,
     };
     library.roles = d.isNew ? [...library.roles, def] : library.roles.map((x) => (x.id === def.id ? def : x));
     if (!saveLibrary()) return;

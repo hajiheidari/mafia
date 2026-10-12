@@ -1,6 +1,8 @@
 import { describe, test, expect } from 'vitest';
 // @ts-expect-error plain JS module shipped as-is to the static host
 import * as L from '../../web/tool/logic.js';
+// @ts-expect-error plain JS module shipped as-is to the static host
+import { SCENARIOS, SCENARIO_ROLES } from '../../web/tool/scenarios.js';
 
 const names = (n: number) => Array.from({ length: n }, (_, i) => `n${i + 1}`);
 type P = { id: string; role: string; alive: boolean };
@@ -160,5 +162,38 @@ describe('scenario and custom roles', () => {
     L.setExtraRoles([]);
     expect(L.ROLES.c_judge).toBeUndefined();
     expect(L.ROLES.godfather.kind).toBe('godfather');
+  });
+});
+
+describe('built-in scenarios', () => {
+  test.each(SCENARIOS.map((sc: { id: string }) => sc.id))('%s is valid at its standard size and at 12', (id) => {
+    L.setExtraRoles(SCENARIO_ROLES);
+    const sc = SCENARIOS.find((x: { id: string }) => x.id === id);
+    for (const r of Object.keys(sc.roles)) expect(L.ROLES[r], r).toBeDefined();
+    expect(L.validateSetup(sc.players, L.fitScenario(sc.roles, sc.players))).toBeNull();
+    expect(L.validateSetup(12, L.fitScenario(sc.roles, 12))).toBeNull();
+    L.setExtraRoles([]);
+  });
+
+  test('wake order, night immunity, sniper-proof boss, positive suspect', () => {
+    L.setExtraRoles(SCENARIO_ROLES);
+    // تکاور: نگهبان and گروگان‌گیر before the mafia, پزشک after تکاور.
+    const tk = fixed(['s_takavar_boss', 's_takavar_hostage', 's_takavar_nato', 's_takavar_guard', 'detective', 's_takavar_commando', 's_takavar_medic', 's_takavar_gunner', 'citizen', 'citizen']);
+    expect(L.nightSteps(tk)).toEqual(['s_takavar_guard', 's_takavar_hostage', 'mafia', 'detective', 's_takavar_commando', 'doctor', 's_takavar_gunner']);
+    // بازپرس: روئین‌تن never dies at night.
+    const bz = fixed(['s_bazpors_boss', 'mafia', 's_bazpors_tough', 'citizen', 'citizen']);
+    const r = L.resolveNight(bz, {}, { mafia: 'p3' }, 1);
+    expect(r.report.deaths).toEqual([]);
+    expect(r.report.immuneHit).toBe('p3');
+    // مذاکره: the sniper cannot kill the boss.
+    const mz = fixed(['s_mozakere_boss', 'mafia', 's_mozakere_sniper', 'citizen', 'citizen']);
+    const r2 = L.resolveNight(mz, {}, { sniper: 'p1' }, 1);
+    expect(r2.report.deaths).toEqual([]);
+    expect(r2.report.sniperNoEffect).toBe('p1');
+    expect(L.resolveNight(mz, {}, { sniper: 'p2' }, 1).report.deaths).toEqual([{ id: 'p2', cause: 'sniper' }]);
+    // کاپو: مظنون reads positive.
+    expect(L.detectivePositive('s_capo_suspect')).toBe(true);
+    expect(L.detectivePositive('s_capo_don')).toBe(false);
+    L.setExtraRoles([]);
   });
 });

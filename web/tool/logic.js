@@ -34,7 +34,10 @@ export const TEAMS = { mafia: 'تیم مافیا', town: 'تیم شهر', indep:
 
 /**
  * Replaces the extra (non built-in) roles. A def is
- * { id, name, team: 'mafia'|'town'|'indep', icon, desc, night: bool, kind?: one of UNIQUE_KINDS, detNeg?: bool }.
+ * { id, name, team: 'mafia'|'town'|'indep', icon, desc, night: bool, kind?: one of UNIQUE_KINDS,
+ *   detNeg?: detective reads «منفی», detPos?: detective reads «مثبت», immune?: the mafia's night shot never
+ *   kills them, shotProof?: the sniper's shot has no effect on them, order?: wake position (see nightSteps),
+ *   scenario?: id of the built-in scenario the role belongs to }.
  */
 export function setExtraRoles(defs) {
   for (const id of Object.keys(ROLES)) if (!BUILTIN[id]) delete ROLES[id];
@@ -49,6 +52,11 @@ export function setExtraRoles(defs) {
       night: !!d.night && !d.kind,
       kind: UNIQUE_KINDS.includes(d.kind) ? d.kind : null,
       detNeg: !!d.detNeg,
+      detPos: !!d.detPos,
+      immune: !!d.immune,
+      shotProof: !!d.shotProof,
+      order: Number.isFinite(d.order) ? d.order : null,
+      scenario: d.scenario || null,
     };
   }
 }
@@ -182,27 +190,40 @@ export function aliveWithKind(players, kind) {
 
 /** True when the detective's answer for this role is «مثبت». */
 export function detectivePositive(role) {
+  if (ROLES[role]?.detPos) return true;
   return teamOf(role) === 'mafia' && kindOf(role) !== 'godfather' && !ROLES[role]?.detNeg;
 }
+
+const KIND_RANK = { mafia: 20, lecter: 25, doctor: 50, detective: 60, sniper: 70 };
 
 /**
  * Which night steps apply this night, given who is alive. A step is a kind
  * ('mafia', 'lecter', 'doctor', 'detective', 'sniper') or, for a role the
- * narrator handles by hand, that role's id.
+ * narrator handles by hand, that role's id. Steps are sorted by rank: the
+ * kinds have fixed ranks (above), hand-run roles default to 30 (mafia team)
+ * or 80 (others), and any role's `order` overrides the rank of its step.
  */
 export function nightSteps(players) {
   const alive = players.filter((p) => p.alive);
-  const manual = (team) => [...new Set(alive.filter((p) => ROLES[p.role]?.night && (teamOf(p.role) === 'mafia') === (team === 'mafia')).map((p) => p.role))]
-    .sort((a, b) => allRoleIds().indexOf(a) - allRoleIds().indexOf(b));
   const steps = [];
   if (alive.some((p) => teamOf(p.role) === 'mafia')) steps.push('mafia');
-  if (aliveWithKind(players, 'lecter').length) steps.push('lecter');
-  steps.push(...manual('mafia'));
-  for (const k of ['doctor', 'detective', 'sniper']) {
+  for (const k of ['lecter', 'doctor', 'detective', 'sniper']) {
     if (aliveWithKind(players, k).length) steps.push(k);
   }
-  steps.push(...manual('town'));
-  return steps;
+  for (const r of allRoleIds()) {
+    if (ROLES[r].night && alive.some((p) => p.role === r)) steps.push(r);
+  }
+  const rank = (step) => {
+    if (KIND_RANK[step] !== undefined) {
+      const actor = step === 'mafia' ? null : aliveWithKind(players, step)[0];
+      return ROLES[actor?.role]?.order ?? KIND_RANK[step];
+    }
+    return ROLES[step].order ?? (teamOf(step) === 'mafia' ? 30 : 80);
+  };
+  return steps
+    .map((step, i) => ({ step, i, r: rank(step) }))
+    .sort((a, b) => a.r - b.r || a.i - b.i)
+    .map((x) => x.step);
 }
 
 /** Players who wake for a step. */
@@ -248,7 +269,7 @@ export function resolveNight(players, memory, actions, round) {
   const ps = players.map((p) => ({ ...p }));
   const mem = { ...memory };
   const byId = (id) => ps.find((p) => p.id === id);
-  const report = { deaths: [], saves: [], shieldUsed: null, detective: null, sniperBackfired: false, manual: [] };
+  const report = { deaths: [], saves: [], shieldUsed: null, immuneHit: null, sniperNoEffect: null, detective: null, sniperBackfired: false, manual: [] };
 
   const doctor = aliveWithKind(ps, 'doctor')[0];
   const lecter = aliveWithKind(ps, 'lecter')[0];
@@ -267,6 +288,7 @@ export function resolveNight(players, memory, actions, round) {
     const t = byId(actions.mafia);
     if (t && t.alive) {
       if (doctor && actions.doctor === t.id) report.saves.push({ id: t.id, by: 'doctor' });
+      else if (ROLES[t.role]?.immune) report.immuneHit = t.id;
       else if (kindOf(t.role) === 'diehard' && !mem.diehardShieldUsed) {
         mem.diehardShieldUsed = true;
         report.shieldUsed = t.id;
@@ -279,7 +301,8 @@ export function resolveNight(players, memory, actions, round) {
     const t = byId(actions.sniper);
     if (t && t.alive) {
       if (teamOf(t.role) === 'mafia') {
-        if (lecter && actions.lecter === t.id) report.saves.push({ id: t.id, by: 'lecter' });
+        if (ROLES[t.role]?.shotProof) report.sniperNoEffect = t.id;
+        else if (lecter && actions.lecter === t.id) report.saves.push({ id: t.id, by: 'lecter' });
         else kills.set(t.id, 'sniper');
       } else {
         report.sniperBackfired = true;
