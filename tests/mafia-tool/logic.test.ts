@@ -119,3 +119,46 @@ describe('win and votes', () => {
     expect(L.toFa(120)).toBe('۱۲۰');
   });
 });
+
+describe('scenario and custom roles', () => {
+  const extra = [
+    { id: 's_boss', name: 'رئیس مافیا', team: 'mafia', kind: 'godfather' },
+    { id: 's_medic', name: 'پزشک', team: 'town', kind: 'doctor' },
+    { id: 'c_judge', name: 'بازپرس', team: 'town', night: true },
+    { id: 'c_liar', name: 'شیاد', team: 'mafia', night: true, detNeg: true },
+    { id: 'c_joker', name: 'جوکر', team: 'indep' },
+  ];
+
+  test('extra roles borrow built-in mechanics by kind', () => {
+    L.setExtraRoles(extra);
+    // p1 boss, p2 mafia, p3 liar, p4 medic, p5 detective, p6 judge, p7 joker, p8 citizen
+    const ps = fixed(['s_boss', 'mafia', 'c_liar', 's_medic', 'detective', 'c_judge', 'c_joker', 'citizen']);
+    expect(L.nightSteps(ps)).toEqual(['mafia', 'c_liar', 'doctor', 'detective', 'c_judge']);
+    const r = L.resolveNight(ps, {}, { mafia: 'p8', doctor: 'p8', detective: 'p1', c_judge: 'p2' }, 1);
+    expect(r.report.saves).toEqual([{ id: 'p8', by: 'doctor' }]);
+    expect(r.report.detective.positive).toBe(false); // boss works like the godfather
+    expect(r.report.manual).toEqual([{ role: 'c_judge', targetId: 'p2' }]);
+    expect(L.detectivePositive('c_liar')).toBe(false);
+    expect(L.detectivePositive('mafia')).toBe(true);
+    expect(L.teamCounts({ s_boss: 1, c_joker: 1, citizen: 2 })).toEqual({ mafia: 1, town: 3, total: 4 });
+    L.setExtraRoles([]);
+  });
+
+  test('at most one role per unique kind, even across names', () => {
+    L.setExtraRoles(extra);
+    expect(L.validateSetup(8, { godfather: 1, s_boss: 1, citizen: 6 })).toMatch(/کار یکسانی دارند/);
+    expect(L.validateSetup(8, { s_boss: 1, mafia: 1, s_medic: 1, citizen: 5 })).toBeNull();
+    L.setExtraRoles([]);
+  });
+
+  test('scenario fits any player count with citizens; unknown roles dropped', () => {
+    L.setExtraRoles(extra);
+    expect(L.fitScenario({ s_boss: 1, mafia: 2, s_medic: 1, gone: 3, citizen: 9 }, 10)).toEqual({ s_boss: 1, mafia: 2, s_medic: 1, citizen: 6 });
+    expect(L.fitScenario({ mafia: 3, doctor: 1 }, 3).citizen).toBe(0);
+    const ps = L.dealRoles(names(5), { s_boss: 1, c_judge: 1, citizen: 3 });
+    expect(ps.filter((p: P) => p.role === 'c_judge')).toHaveLength(1);
+    L.setExtraRoles([]);
+    expect(L.ROLES.c_judge).toBeUndefined();
+    expect(L.ROLES.godfather.kind).toBe('godfather');
+  });
+});

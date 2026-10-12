@@ -1,6 +1,10 @@
 // منطق خالص بازی مافیا برای ابزار گرداننده (بدون DOM) — در مرورگر و در تست‌های Node استفاده می‌شود.
 
-export const ROLES = {
+// Built-in roles. Each has a `kind`: the night mechanics the tool resolves
+// automatically. Scenario and custom roles (see setExtraRoles) either borrow
+// one of these kinds — e.g. «رئیس مافیا» works like the godfather — or have
+// no kind, and then the narrator wakes them and applies their effect by hand.
+const BUILTIN = {
   godfather: { name: 'پدرخوانده', team: 'mafia', icon: '🎩', desc: 'رئیس مافیا. شلیک شب با تصمیم اوست و استعلام کارآگاه از او «منفی» است.' },
   lecter: { name: 'دکتر لکتر', team: 'mafia', icon: '💉', desc: 'دکتر مافیا. هر شب یکی از اعضای مافیا را از تیر اسنایپر نجات می‌دهد. خودش را فقط یک بار.' },
   mafia: { name: 'مافیای ساده', team: 'mafia', icon: '🔪', desc: 'عضو تیم مافیا. شب‌ها با هم‌تیمی‌ها بیدار می‌شود.' },
@@ -12,6 +16,53 @@ export const ROLES = {
 };
 
 export const ROLE_ORDER = ['godfather', 'lecter', 'mafia', 'doctor', 'detective', 'sniper', 'diehard', 'citizen'];
+
+/** Every role the tool knows: built-ins plus extra roles. Mutated only by setExtraRoles. */
+export const ROLES = Object.fromEntries(ROLE_ORDER.map((id) => [id, { ...BUILTIN[id], id, kind: id, night: false }]));
+
+/** Kinds that can appear at most once in a game. */
+export const UNIQUE_KINDS = ['godfather', 'lecter', 'doctor', 'detective', 'sniper', 'diehard'];
+export const KIND_LABEL = {
+  godfather: 'مثل پدرخوانده (استعلامش منفی)',
+  lecter: 'مثل دکتر لکتر (نجات مافیا از تیر)',
+  doctor: 'مثل دکتر (نجات شبانه)',
+  detective: 'مثل کارآگاه (استعلام)',
+  sniper: 'مثل اسنایپر (شلیک شب)',
+  diehard: 'مثل رویین‌تن (یک تیر را تحمل می‌کند)',
+};
+export const TEAMS = { mafia: 'تیم مافیا', town: 'تیم شهر', indep: 'مستقل' };
+
+/**
+ * Replaces the extra (non built-in) roles. A def is
+ * { id, name, team: 'mafia'|'town'|'indep', icon, desc, night: bool, kind?: one of UNIQUE_KINDS, detNeg?: bool }.
+ */
+export function setExtraRoles(defs) {
+  for (const id of Object.keys(ROLES)) if (!BUILTIN[id]) delete ROLES[id];
+  for (const d of defs || []) {
+    if (!d || !d.id || BUILTIN[d.id]) continue;
+    ROLES[d.id] = {
+      id: d.id,
+      name: String(d.name || '؟'),
+      team: TEAMS[d.team] ? d.team : 'town',
+      icon: d.icon || (d.team === 'mafia' ? '🃏' : '🎴'),
+      desc: String(d.desc || ''),
+      night: !!d.night && !d.kind,
+      kind: UNIQUE_KINDS.includes(d.kind) ? d.kind : null,
+      detNeg: !!d.detNeg,
+    };
+  }
+}
+
+/** Built-ins first, then extras grouped mafia → town → independent. */
+export function allRoleIds() {
+  const extra = Object.keys(ROLES).filter((id) => !BUILTIN[id]);
+  const rank = { mafia: 0, town: 1, indep: 2 };
+  extra.sort((a, b) => rank[ROLES[a].team] - rank[ROLES[b].team]);
+  return [...ROLE_ORDER, ...extra];
+}
+
+export const kindOf = (role) => ROLES[role]?.kind ?? null;
+export const teamOf = (role) => ROLES[role]?.team ?? 'town';
 
 /** Order in which the narrator wakes roles at night. */
 export const NIGHT_ORDER = ['mafia', 'lecter', 'doctor', 'detective', 'sniper'];
@@ -47,12 +98,30 @@ export function suggestRoles(n) {
   return counts;
 }
 
+/**
+ * Fits a saved scenario (role → count) to n players: every role keeps its
+ * count and plain citizens fill the rest. Roles the tool does not know are dropped.
+ */
+export function fitScenario(roles, n) {
+  const counts = {};
+  let used = 0;
+  for (const [r, c] of Object.entries(roles || {})) {
+    if (r === 'citizen' || !ROLES[r] || !(c > 0)) continue;
+    counts[r] = Math.floor(c);
+    used += counts[r];
+  }
+  counts.citizen = Math.max(0, n - used);
+  return counts;
+}
+
+/** Independents count on the town side for the parity rule. */
 export function teamCounts(counts) {
   let mafia = 0;
   let town = 0;
-  for (const r of ROLE_ORDER) {
-    if (ROLES[r].team === 'mafia') mafia += counts[r] || 0;
-    else town += counts[r] || 0;
+  for (const [r, c] of Object.entries(counts || {})) {
+    if (!ROLES[r] || !c) continue;
+    if (teamOf(r) === 'mafia') mafia += c;
+    else town += c;
   }
   return { mafia, town, total: mafia + town };
 }
@@ -65,8 +134,14 @@ export function validateSetup(playerCount, counts) {
   if (total !== playerCount) return `جمع نقش‌ها (${total}) با تعداد بازیکن‌ها (${playerCount}) برابر نیست.`;
   if (mafia < 1) return 'حداقل یک نقش مافیا لازم است.';
   if (mafia >= town) return 'تعداد مافیا باید از شهروندها کمتر باشد.';
-  for (const r of ['godfather', 'lecter', 'doctor', 'detective', 'sniper', 'diehard']) {
-    if ((counts[r] || 0) > 1) return `از نقش «${ROLES[r].name}» فقط یکی مجاز است.`;
+  for (const k of UNIQUE_KINDS) {
+    const withKind = Object.keys(counts).filter((r) => ROLES[r] && kindOf(r) === k && counts[r] > 0);
+    const n = withKind.reduce((s, r) => s + counts[r], 0);
+    if (n > 1) {
+      return withKind.length === 1
+        ? `از نقش «${ROLES[withKind[0]].name}» فقط یکی مجاز است.`
+        : `نقش‌های ${withKind.map((r) => `«${ROLES[r].name}»`).join(' و ')} کار یکسانی دارند؛ فقط یکی از آن‌ها مجاز است.`;
+    }
   }
   return null;
 }
@@ -86,7 +161,7 @@ export function cryptoRandomInt(max) {
 /** Fisher–Yates deal. Returns players with a `role` each. */
 export function dealRoles(names, counts, randomInt = cryptoRandomInt) {
   const bag = [];
-  for (const r of ROLE_ORDER) for (let i = 0; i < (counts[r] || 0); i++) bag.push(r);
+  for (const r of allRoleIds()) for (let i = 0; i < (counts[r] || 0); i++) bag.push(r);
   for (let i = bag.length - 1; i > 0; i--) {
     const j = randomInt(i + 1);
     [bag[i], bag[j]] = [bag[j], bag[i]];
@@ -101,30 +176,49 @@ export function dealRoles(names, counts, randomInt = cryptoRandomInt) {
   }));
 }
 
-export const teamOf = (role) => ROLES[role].team;
-
-export function aliveWithRole(players, role) {
-  return players.filter((p) => p.alive && p.role === role);
+export function aliveWithKind(players, kind) {
+  return players.filter((p) => p.alive && kindOf(p.role) === kind);
 }
 
-/** Which night steps apply this night, given who is alive. */
-export function nightSteps(players) {
-  const steps = [];
-  if (players.some((p) => p.alive && teamOf(p.role) === 'mafia')) steps.push('mafia');
-  for (const r of ['lecter', 'doctor', 'detective', 'sniper']) {
-    if (aliveWithRole(players, r).length) steps.push(r);
-  }
-  return steps;
+/** True when the detective's answer for this role is «مثبت». */
+export function detectivePositive(role) {
+  return teamOf(role) === 'mafia' && kindOf(role) !== 'godfather' && !ROLES[role]?.detNeg;
 }
 
 /**
- * Valid targets for a role this night, plus a reason for each excluded
- * player so the narrator can explain it. `memory` carries cross-night
+ * Which night steps apply this night, given who is alive. A step is a kind
+ * ('mafia', 'lecter', 'doctor', 'detective', 'sniper') or, for a role the
+ * narrator handles by hand, that role's id.
+ */
+export function nightSteps(players) {
+  const alive = players.filter((p) => p.alive);
+  const manual = (team) => [...new Set(alive.filter((p) => ROLES[p.role]?.night && (teamOf(p.role) === 'mafia') === (team === 'mafia')).map((p) => p.role))]
+    .sort((a, b) => allRoleIds().indexOf(a) - allRoleIds().indexOf(b));
+  const steps = [];
+  if (alive.some((p) => teamOf(p.role) === 'mafia')) steps.push('mafia');
+  if (aliveWithKind(players, 'lecter').length) steps.push('lecter');
+  steps.push(...manual('mafia'));
+  for (const k of ['doctor', 'detective', 'sniper']) {
+    if (aliveWithKind(players, k).length) steps.push(k);
+  }
+  steps.push(...manual('town'));
+  return steps;
+}
+
+/** Players who wake for a step. */
+export function actorsFor(step, players) {
+  if (step === 'mafia') return players.filter((p) => p.alive && teamOf(p.role) === 'mafia');
+  if (NIGHT_ORDER.includes(step)) return aliveWithKind(players, step);
+  return players.filter((p) => p.alive && p.role === step);
+}
+
+/**
+ * Valid targets for a step this night. `memory` carries cross-night
  * limits: lastDoctorSave, doctorSelfUsed, lecterSelfUsed.
  */
 export function targetsFor(step, players, memory) {
   const alive = players.filter((p) => p.alive);
-  const actor = step === 'mafia' ? null : aliveWithRole(players, step)[0];
+  const actor = step === 'mafia' ? null : actorsFor(step, players)[0];
   switch (step) {
     case 'mafia':
       return alive.filter((p) => teamOf(p.role) !== 'mafia');
@@ -140,29 +234,30 @@ export function targetsFor(step, players, memory) {
     case 'sniper':
       return alive.filter((p) => p.id !== actor?.id);
     default:
-      return [];
+      return ROLES[step] ? alive : [];
   }
 }
 
 /**
- * Resolves a night. `actions` = { mafia, lecter, doctor, detective, sniper }
- * (player ids or null). Pure: returns the new players/memory plus a
- * narrator report; never mutates its inputs.
+ * Resolves a night. `actions` = { mafia, lecter, doctor, detective, sniper,
+ * <manual role id>… } (player ids or null). Pure: returns the new
+ * players/memory plus a narrator report; never mutates its inputs. Choices
+ * of hand-run roles are only reported (report.manual), never applied.
  */
 export function resolveNight(players, memory, actions, round) {
   const ps = players.map((p) => ({ ...p }));
   const mem = { ...memory };
   const byId = (id) => ps.find((p) => p.id === id);
-  const report = { deaths: [], saves: [], shieldUsed: null, detective: null, sniperBackfired: false };
+  const report = { deaths: [], saves: [], shieldUsed: null, detective: null, sniperBackfired: false, manual: [] };
 
-  const doctor = aliveWithRole(ps, 'doctor')[0];
-  const lecter = aliveWithRole(ps, 'lecter')[0];
-  const sniper = aliveWithRole(ps, 'sniper')[0];
+  const doctor = aliveWithKind(ps, 'doctor')[0];
+  const lecter = aliveWithKind(ps, 'lecter')[0];
+  const sniper = aliveWithKind(ps, 'sniper')[0];
 
   // Detective (answer is for the narrator to signal; godfather reads negative).
   if (actions.detective) {
     const t = byId(actions.detective);
-    if (t) report.detective = { targetId: t.id, positive: teamOf(t.role) === 'mafia' && t.role !== 'godfather' };
+    if (t) report.detective = { targetId: t.id, positive: detectivePositive(t.role) };
   }
 
   const kills = new Map(); // id → cause
@@ -172,7 +267,7 @@ export function resolveNight(players, memory, actions, round) {
     const t = byId(actions.mafia);
     if (t && t.alive) {
       if (doctor && actions.doctor === t.id) report.saves.push({ id: t.id, by: 'doctor' });
-      else if (t.role === 'diehard' && !mem.diehardShieldUsed) {
+      else if (kindOf(t.role) === 'diehard' && !mem.diehardShieldUsed) {
         mem.diehardShieldUsed = true;
         report.shieldUsed = t.id;
       } else kills.set(t.id, 'night');
@@ -191,6 +286,10 @@ export function resolveNight(players, memory, actions, round) {
         kills.set(sniper.id, 'sniper');
       }
     }
+  }
+
+  for (const [step, target] of Object.entries(actions)) {
+    if (target && !NIGHT_ORDER.includes(step) && ROLES[step]) report.manual.push({ role: step, targetId: target });
   }
 
   for (const [id, cause] of kills) {

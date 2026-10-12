@@ -1,19 +1,117 @@
 import {
-  ROLES, ROLE_ORDER, MIN_PLAYERS, MAX_PLAYERS,
-  suggestRoles, teamCounts, validateSetup, dealRoles, nightSteps, targetsFor,
-  resolveNight, winner, voteThreshold, teamOf, toFa,
+  ROLES, ROLE_ORDER, MIN_PLAYERS, MAX_PLAYERS, UNIQUE_KINDS, KIND_LABEL, TEAMS,
+  suggestRoles, fitScenario, teamCounts, validateSetup, dealRoles, nightSteps, actorsFor, targetsFor,
+  resolveNight, winner, voteThreshold, teamOf, detectivePositive, setExtraRoles, allRoleIds, toFa,
 } from './logic.js';
+import { SCENARIOS, SCENARIO_ROLES } from './scenarios.js';
 
 const STORE_KEY = 'mafia-tool-v1';
 const NAMES_KEY = 'mafia-tool-names';
+const LIB_KEY = 'mafia-tool-library';
 
-const STEP_INFO = {
-  mafia: { title: 'تیم مافیا بیدار شود', ask: 'پدرخوانده (یا مافیا) چه کسی را می‌زند؟', none: 'شلیک نمی‌کنند' },
-  lecter: { title: 'دکتر لکتر بیدار شود', ask: 'کدام عضو مافیا را نجات می‌دهد؟', none: 'کسی را نجات نمی‌دهد' },
-  doctor: { title: 'دکتر بیدار شود', ask: 'چه کسی را نجات می‌دهد؟', none: 'کسی را نجات نمی‌دهد' },
-  detective: { title: 'کارآگاه بیدار شود', ask: 'از چه کسی استعلام می‌گیرد؟', none: 'استعلام نمی‌گیرد' },
-  sniper: { title: 'اسنایپر بیدار شود', ask: 'به چه کسی شلیک می‌کند؟', none: 'شلیک نمی‌کند' },
+const DEFAULT_BRAND = 'گاد مافیا';
+const COLORS = ['#7C5CFC', '#E5484D', '#F76B15', '#FFB224', '#30A46C', '#0091FF', '#D6409F', '#8D8D99'];
+
+// ---------- library: the group's brand, own roles and saved scenarios (kept on this phone) ----------
+
+function loadLibrary() {
+  let lib = null;
+  try { lib = JSON.parse(localStorage.getItem(LIB_KEY) || 'null'); } catch { /* ignore */ }
+  return {
+    brand: { name: '', logo: '', color: '', ...(lib?.brand || {}) },
+    roles: Array.isArray(lib?.roles) ? lib.roles : [],
+    scenarios: Array.isArray(lib?.scenarios) ? lib.scenarios : [],
+  };
+}
+let library = loadLibrary();
+function saveLibrary() {
+  try {
+    localStorage.setItem(LIB_KEY, JSON.stringify(library));
+    return true;
+  } catch {
+    alert('حافظه‌ی مرورگر پر است یا در دسترس نیست؛ تغییر ذخیره نشد. لوگوی کوچک‌تری امتحان کنید.');
+    return false;
+  }
+}
+
+/** Registers every role the tool can show: scenario roles, the group's roles, and the roles of the running game. */
+function syncRoles() {
+  const byId = new Map();
+  for (const d of [...SCENARIO_ROLES, ...library.roles, ...(state?.roleDefs || [])]) byId.set(d.id, d);
+  setExtraRoles([...byId.values()]);
+}
+
+const roleOf = (id) => ROLES[id] || { id, name: '؟', team: 'town', icon: '❔', desc: '', kind: null, night: false };
+const brandName = () => library.brand.name.trim() || DEFAULT_BRAND;
+
+function lighten(hex, amount = 0.35) {
+  const n = parseInt(hex.slice(1), 16);
+  const ch = (v) => Math.round(v + (255 - v) * amount);
+  const [r, g, b] = [ch(n >> 16), ch((n >> 8) & 255), ch(n & 255)];
+  return `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
+}
+function applyBrand() {
+  const c = library.brand.color;
+  const root = document.documentElement.style;
+  if (/^#[0-9a-f]{6}$/i.test(c)) {
+    root.setProperty('--accent', c);
+    root.setProperty('--accent-soft', lighten(c));
+  } else {
+    root.removeProperty('--accent');
+    root.removeProperty('--accent-soft');
+  }
+  document.title = library.brand.name.trim() ? `${library.brand.name.trim()} | گاد مافیا` : 'گاد مافیا | اسپادنا';
+}
+
+function logoHtml(cls = 'logo') {
+  return library.brand.logo
+    ? `<img class="${cls}-img" src="${esc(library.brand.logo)}" alt="">`
+    : `<span class="${cls}">🕵️</span>`;
+}
+
+/** Shrinks a picked image to at most 320px (PNG keeps transparency) so it fits in local storage. */
+function readLogo(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        const max = 320;
+        const k = Math.min(1, max / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(img.width * k));
+        canvas.height = Math.max(1, Math.round(img.height * k));
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/png'));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+const newId = (prefix) => `${prefix}${Date.now().toString(36)}${Math.floor(Math.random() * 1e4).toString(36)}`;
+
+const STEP_ASK = {
+  mafia: { ask: 'پدرخوانده (یا مافیا) چه کسی را می‌زند؟', none: 'شلیک نمی‌کنند' },
+  lecter: { ask: 'کدام عضو مافیا را نجات می‌دهد؟', none: 'کسی را نجات نمی‌دهد' },
+  doctor: { ask: 'چه کسی را نجات می‌دهد؟', none: 'کسی را نجات نمی‌دهد' },
+  detective: { ask: 'از چه کسی استعلام می‌گیرد؟', none: 'استعلام نمی‌گیرد' },
+  sniper: { ask: 'به چه کسی شلیک می‌کند؟', none: 'شلیک نمی‌کند' },
 };
+
+/** Name of a night step: the team for the mafia step, else the role that wakes (as named in this game). */
+function stepName(step) {
+  if (step === 'mafia') return 'تیم مافیا';
+  if (ROLES[step] && !STEP_ASK[step]) return roleOf(step).name;
+  const actor = actorsFor(step, state.players)[0];
+  return actor ? roleOf(actor.role).name : roleOf(step).name;
+}
+function stepInfo(step) {
+  return STEP_ASK[step] || { ask: 'کار شبانه‌اش روی چه کسی است؟ (اثرش را خودتان اعمال کنید)', none: 'کاری نمی‌کند' };
+}
 
 const CAUSE = { night: 'شلیک شب', sniper: 'تیر اسنایپر', vote: 'رأی روز', manual: 'حذف دستی' };
 
@@ -25,11 +123,14 @@ function freshState() {
   return {
     view: 'players', names, counts: null, players: [], memory: {},
     round: 1, phase: 'day', night: null, report: null, votes: {}, log: [],
-    showRoles: false, revealId: null, menuId: null, winner: null,
+    showRoles: false, revealId: null, revealOpen: false, menuId: null, winner: null,
+    scenarioId: null, roleDefs: [], editRole: null, settingsFrom: null,
   };
 }
 
 let state = load() || freshState();
+syncRoles();
+applyBrand();
 const undoStack = [];
 
 function load() {
@@ -54,6 +155,7 @@ function undo() {
   const prev = undoStack.pop();
   if (!prev) return;
   state = JSON.parse(prev);
+  syncRoles();
   save();
   render();
 }
@@ -135,19 +237,31 @@ function renderTimer() {
 
 const app = document.getElementById('app');
 
-function header(title, back) {
+const roleLabel = (id) => `${roleOf(id).icon} ${esc(roleOf(id).name)}`;
+
+function header(title, back, end) {
+  const right = end
+    ?? (undoStack.length && !['players', 'settings', 'role-edit'].includes(state.view)
+      ? '<button class="icon-btn" data-action="undo" aria-label="برگرداندن آخرین کار">↶</button>'
+      : '<span></span>');
   return `
   <header class="bar">
-    ${back ? `<button class="icon-btn" data-action="${back}" aria-label="بازگشت">→</button>` : '<span class="logo">🕵️</span>'}
-    <h1>${title}</h1>
-    ${undoStack.length && state.view !== 'players' ? '<button class="icon-btn" data-action="undo" aria-label="برگرداندن آخرین کار">↶</button>' : '<span></span>'}
+    ${back ? `<button class="icon-btn" data-action="${back}" aria-label="بازگشت">→</button>` : logoHtml()}
+    <h1><small class="brand-name">${esc(brandName())}</small>${title}</h1>
+    ${right}
   </header>`;
 }
 
 function viewPlayers() {
   const n = state.names.length;
-  return `${header('بازیکن‌ها')}
+  const gear = '<button class="icon-btn" data-action="open-settings" aria-label="تنظیمات گروه">⚙︎</button>';
+  return `${header('بازیکن‌ها', null, gear)}
   <main class="pad">
+    ${!library.brand.name && !library.brand.logo ? `
+    <button class="card hint" data-action="open-settings">
+      <b>اپ را مال گروه خودتان کنید</b>
+      <small>اسم و لوگوی گروه، رنگ، نقش‌ها و سناریوهای خودتان را در تنظیمات بگذارید.</small>
+    </button>` : ''}
     <form class="row" data-form="add-name">
       <input id="name-input" name="name" maxlength="24" autocomplete="off" placeholder="اسم بازیکن" aria-label="اسم بازیکن">
       <button class="btn primary" type="submit">افزودن</button>
@@ -165,50 +279,175 @@ function viewPlayers() {
   </footer>`;
 }
 
+function scenarioChips() {
+  const chip = (id, label, extra = '') =>
+    `<button class="chip-btn ${state.scenarioId === id ? 'on' : ''}" data-action="use-scenario" data-id="${id}">${label}${extra}</button>`;
+  return `
+  <section class="card">
+    <p class="label">سناریو</p>
+    <div class="presets">
+      ${chip('auto', 'پیشنهاد خودکار')}
+      ${library.scenarios.map((sc) => chip(`my:${sc.id}`, `⭐ ${esc(sc.name)}`)).join('')}
+      ${SCENARIOS.map((sc) => chip(`b:${sc.id}`, esc(sc.name))).join('')}
+    </div>
+    ${scenarioNote()}
+  </section>`;
+}
+function scenarioNote() {
+  const id = state.scenarioId || '';
+  if (id.startsWith('b:')) {
+    const sc = SCENARIOS.find((x) => `b:${x.id}` === id);
+    if (sc) return `<p class="muted small-text">${esc(sc.summary)} (استاندارد: ${toFa(sc.players)} نفر)</p>`;
+  }
+  if (id.startsWith('my:')) {
+    return `<p class="muted small-text">سناریوی ذخیره‌شده‌ی خودتان. هر تغییری بدهید فقط برای همین بازی است؛ برای نگه داشتنش دوباره ذخیره کنید.</p>`;
+  }
+  return '';
+}
+
+function roleRow(r, count) {
+  const role = roleOf(r);
+  const tag = role.kind && role.kind !== r ? `<em class="tag">${esc(KIND_LABEL[role.kind] || '')}</em>`
+    : (!role.kind && role.night ? '<em class="tag">شب بیدار می‌شود · اجرای دستی</em>' : '');
+  return `
+  <li class="item role-row ${role.team}">
+    <span class="ricon">${role.icon}</span>
+    <span class="grow"><b>${esc(role.name)}</b>${tag}<small>${esc(role.desc)}</small></span>
+    <span class="stepper">
+      <button class="icon-btn small" data-action="dec" data-role="${r}" aria-label="کم کردن">−</button>
+      <b>${toFa(count)}</b>
+      <button class="icon-btn small" data-action="inc" data-role="${r}" aria-label="زیاد کردن">+</button>
+    </span>
+  </li>`;
+}
+
 function viewRoles() {
   const n = state.names.length;
   const c = state.counts;
   const { mafia, town, total } = teamCounts(c);
   const error = validateSetup(n, c);
+  const ids = allRoleIds();
+  const used = ids.filter((r) => (c[r] || 0) > 0 || r === 'citizen');
+  const rest = ids.filter((r) => !used.includes(r));
   return `${header('نقش‌ها', 'to-players')}
   <main class="pad">
+    ${scenarioChips()}
     <div class="summary">
       <span class="chip mafia">مافیا ${toFa(mafia)}</span>
       <span class="chip town">شهر ${toFa(town)}</span>
       <span class="chip">${toFa(total)} از ${toFa(n)}</span>
-      <button class="btn ghost small" data-action="suggest">پیشنهاد خودکار</button>
     </div>
-    <ul class="list">
-      ${ROLE_ORDER.map((r) => `
-        <li class="item role-row ${ROLES[r].team}">
-          <span class="ricon">${ROLES[r].icon}</span>
-          <span class="grow"><b>${ROLES[r].name}</b><small>${ROLES[r].desc}</small></span>
-          <span class="stepper">
-            <button class="icon-btn small" data-action="dec" data-role="${r}" aria-label="کم کردن">−</button>
-            <b>${toFa(c[r] || 0)}</b>
-            <button class="icon-btn small" data-action="inc" data-role="${r}" aria-label="زیاد کردن">+</button>
-          </span>
-        </li>`).join('')}
-    </ul>
+    <ul class="list">${used.map((r) => roleRow(r, c[r] || 0)).join('')}</ul>
     ${error ? `<p class="error">${error}</p>` : ''}
+    <details class="log">
+      <summary>افزودن نقش دیگر (${toFa(rest.length)})</summary>
+      <ul class="list more-roles">${rest.map((r) => roleRow(r, 0)).join('')}</ul>
+    </details>
+    <div class="row wrap">
+      <button class="btn ghost small" data-action="new-role">＋ ساخت نقش جدید</button>
+      <button class="btn ghost small" data-action="save-scenario">⭐ ذخیره به‌عنوان سناریو</button>
+    </div>
   </main>
   <footer class="dock">
     <button class="btn primary block" data-action="deal" ${error ? 'disabled' : ''}>پخش تصادفی نقش‌ها</button>
   </footer>`;
 }
 
+function viewRoleEdit() {
+  const d = state.editRole;
+  const teamBtn = (t) => `<button type="button" class="chip-btn ${d.team === t ? 'on' : ''}" data-action="edit-team" data-team="${t}">${TEAMS[t]}</button>`;
+  return `${header(d.isNew ? 'نقش جدید' : 'ویرایش نقش', 'role-edit-back', '<span></span>')}
+  <main class="pad">
+    <form class="form" data-form="role">
+      <label>اسم نقش<input name="name" maxlength="24" required value="${esc(d.name)}" placeholder="مثلاً: بازپرس"></label>
+      <label>شکلک (ایموجی)<input name="icon" maxlength="4" value="${esc(d.icon)}" placeholder="🎴"></label>
+      <div><p class="label">تیم</p><div class="presets">${teamBtn('mafia')}${teamBtn('town')}${teamBtn('indep')}</div>
+        ${d.team === 'indep' ? '<small class="muted">نقش مستقل در شمارش برد کنار شهر حساب می‌شود؛ برد خودش را شما اعلام کنید.</small>' : ''}</div>
+      <label>توضیح روی کارت<textarea name="desc" maxlength="200" rows="3" placeholder="توانایی نقش را کوتاه بنویسید">${esc(d.desc)}</textarea></label>
+      <label>کار شبانه
+        <select name="kind">
+          <option value="" ${!d.kind ? 'selected' : ''}>بدون کار خودکار (گرداننده خودش اجرا می‌کند)</option>
+          ${UNIQUE_KINDS.map((k) => `<option value="${k}" ${d.kind === k ? 'selected' : ''}>${KIND_LABEL[k]}</option>`).join('')}
+        </select>
+      </label>
+      ${!d.kind ? `<label class="check"><input type="checkbox" name="night" ${d.night ? 'checked' : ''}> شب بیدار می‌شود (در مراحل شب صدایش می‌زنیم)</label>` : ''}
+      ${d.team === 'mafia' && d.kind !== 'godfather' ? `<label class="check"><input type="checkbox" name="detNeg" ${d.detNeg ? 'checked' : ''}> استعلام کارآگاه از او منفی است</label>` : ''}
+      <button class="btn primary block" type="submit">ذخیره‌ی نقش</button>
+      ${!d.isNew ? '<button type="button" class="btn ghost small danger-text" data-action="delete-role">حذف این نقش</button>' : ''}
+    </form>
+  </main>`;
+}
+
+function viewSettings() {
+  const b = library.brand;
+  return `${header('تنظیمات گروه', 'close-settings', '<span></span>')}
+  <main class="pad">
+    <section class="card brand-card">
+      <div class="brand-preview">${b.logo ? `<img src="${esc(b.logo)}" alt="">` : '<span>🕵️</span>'}</div>
+      <form class="form" data-form="brand">
+        <label>اسم گروه یا مجموعه<input name="name" maxlength="30" value="${esc(b.name)}" placeholder="مثلاً: مافیای الون"></label>
+        <button class="btn primary small" type="submit">ذخیره‌ی اسم</button>
+      </form>
+      <div class="row wrap">
+        <label class="btn ghost small file-btn">${b.logo ? 'عوض کردن لوگو' : 'انتخاب لوگو'}<input type="file" accept="image/*" data-input="logo" hidden></label>
+        ${b.logo ? '<button class="btn ghost small" data-action="remove-logo">حذف لوگو</button>' : ''}
+      </div>
+      <p class="muted small-text">اسم و لوگو بالای صفحه‌ها و پشت کارت نقش‌ها می‌آید. بهتر است لوگو مربعی و با پس‌زمینه‌ی شفاف باشد.</p>
+      <p class="label">رنگ اصلی</p>
+      <div class="swatches">
+        ${COLORS.map((col) => `<button class="swatch ${(b.color || COLORS[0]).toLowerCase() === col.toLowerCase() ? 'on' : ''}" style="background:${col}" data-action="set-color" data-c="${col}" aria-label="رنگ ${col}"></button>`).join('')}
+      </div>
+    </section>
+
+    <section class="card">
+      <p class="label">سناریوهای من</p>
+      ${library.scenarios.length ? `<ul class="list">${library.scenarios.map((sc) => `
+        <li class="item"><span class="grow"><b>${esc(sc.name)}</b>
+          <small class="muted">${Object.entries(sc.roles).filter(([r]) => r !== 'citizen' && ROLES[r]).map(([r, k]) => `${esc(roleOf(r).name)}${k > 1 ? ` ×${toFa(k)}` : ''}`).join('، ')} + شهروند</small></span>
+          <button class="icon-btn small" data-action="rename-scenario" data-id="${sc.id}" aria-label="تغییر اسم">✎</button>
+          <button class="icon-btn small" data-action="delete-scenario" data-id="${sc.id}" aria-label="حذف">✕</button></li>`).join('')}</ul>`
+        : '<p class="muted small-text">هنوز سناریویی ذخیره نکرده‌اید. در صفحه‌ی نقش‌ها ترکیب دلخواه را بچینید و «ذخیره به‌عنوان سناریو» را بزنید.</p>'}
+    </section>
+
+    <section class="card">
+      <p class="label">نقش‌های من</p>
+      ${library.roles.length ? `<ul class="list">${library.roles.map((d) => `
+        <li class="item role-row ${d.team}"><span class="ricon">${esc(d.icon || '🎴')}</span>
+          <span class="grow"><b>${esc(d.name)}</b><small>${TEAMS[d.team] || ''}</small></span>
+          <button class="icon-btn small" data-action="edit-role" data-id="${d.id}" aria-label="ویرایش">✎</button></li>`).join('')}</ul>`
+        : '<p class="muted small-text">نقش‌هایی که خودتان می‌سازید اینجا می‌آیند.</p>'}
+      <button class="btn ghost small" data-action="new-role">＋ ساخت نقش جدید</button>
+    </section>
+    <p class="muted small-text center">همه‌ی این‌ها فقط روی همین گوشی ذخیره می‌شود.</p>
+  </main>`;
+}
+
 function viewReveal() {
   if (state.revealId) {
     const p = byId(state.revealId);
-    const r = ROLES[p.role];
+    if (!state.revealOpen) {
+      return `
+      <main class="reveal card-back">
+        <button class="back-face" data-action="flip-role">
+          <span class="back-logo">${library.brand.logo ? `<img src="${esc(library.brand.logo)}" alt="">` : '🕵️'}</span>
+          <b class="back-brand">${esc(brandName())}</b>
+          <span class="back-name">${esc(p.name)}</span>
+          <small>برای دیدن نقش بزن</small>
+        </button>
+        <button class="btn ghost" data-action="cancel-reveal">این من نیستم</button>
+      </main>`;
+    }
+    const r = roleOf(p.role);
+    const mates = state.players.filter((q) => q.id !== p.id && teamOf(q.role) === 'mafia');
     return `
     <main class="reveal ${r.team}">
+      <p class="mini-brand">${logoHtml('mini')}<span>${esc(brandName())}</span></p>
       <p class="muted">${esc(p.name)}</p>
       <div class="big-icon">${r.icon}</div>
-      <h2>${r.name}</h2>
-      <p class="team-label">${r.team === 'mafia' ? 'تیم مافیا' : 'تیم شهر'}</p>
-      <p class="desc">${r.desc}</p>
-      ${r.team === 'mafia' ? `<p class="desc">هم‌تیمی‌ها: ${state.players.filter((q) => q.id !== p.id && teamOf(q.role) === 'mafia').map((q) => `${esc(q.name)} (${ROLES[q.role].name})`).join('، ') || '—'}</p>` : ''}
+      <h2>${esc(r.name)}</h2>
+      <p class="team-label">${TEAMS[r.team]}</p>
+      <p class="desc">${esc(r.desc)}</p>
+      ${r.team === 'mafia' ? `<p class="desc">هم‌تیمی‌ها: ${mates.map((q) => `${esc(q.name)} (${esc(roleOf(q.role).name)})`).join('، ') || '—'}</p>` : ''}
       <button class="btn primary block" data-action="hide-role">دیدم، مخفی کن</button>
     </main>`;
   }
@@ -228,8 +467,8 @@ function viewReveal() {
 }
 
 function playerRow(p) {
-  const r = ROLES[p.role];
-  const roleTxt = state.showRoles || !p.alive ? `<small class="${r.team}">${r.icon} ${r.name}</small>` : '';
+  const r = roleOf(p.role);
+  const roleTxt = state.showRoles || !p.alive ? `<small class="${r.team}">${roleLabel(p.role)}</small>` : '';
   const death = p.death ? `<small class="muted">${CAUSE[p.death.cause]} · ${toFa(p.death.round)}</small>` : '';
   const votes = state.votes[p.id] || 0;
   const open = state.menuId === p.id;
@@ -257,7 +496,8 @@ function playerRow(p) {
 
 function viewGame() {
   const alive = state.players.filter((p) => p.alive);
-  const { mafia, town } = alive.reduce((a, p) => (a[teamOf(p.role)]++, a), { mafia: 0, town: 0 });
+  const mafia = alive.filter((p) => teamOf(p.role) === 'mafia').length;
+  const town = alive.length - mafia;
   return `${header(phaseLabel())}
   <main class="pad">
     ${state.report && state.phase === 'day' ? morningCard() : ''}
@@ -293,9 +533,10 @@ function morningCard() {
     ? r.deaths.map((d) => `<b>${nameOf(d.id)}</b> دیشب از بازی خارج شد.`).join('<br>')
     : 'دیشب کسی از بازی خارج نشد.';
   const secret = [];
-  for (const s of r.saves) secret.push(`${nameOf(s.id)} توسط ${s.by === 'doctor' ? 'دکتر' : 'دکتر لکتر'} نجات پیدا کرد.`);
-  if (r.shieldUsed) secret.push(`سپر رویین‌تن (${nameOf(r.shieldUsed)}) مصرف شد.`);
-  if (r.sniperBackfired) secret.push('اسنایپر به شهروند شلیک کرد و خودش حذف شد.');
+  for (const s of r.saves) secret.push(`${nameOf(s.id)} توسط ${esc(stepName(s.by))} نجات پیدا کرد.`);
+  if (r.shieldUsed) secret.push(`سپر ${esc(roleOf(byId(r.shieldUsed)?.role).name)} (${nameOf(r.shieldUsed)}) مصرف شد.`);
+  if (r.sniperBackfired) secret.push(`${esc(stepName('sniper'))} به شهروند شلیک کرد و خودش حذف شد.`);
+  for (const m of r.manual || []) secret.push(`${esc(roleOf(m.role).name)} ← ${nameOf(m.targetId)} (اثرش را خودتان اعمال کنید)`);
   return `
   <section class="card announce">
     <p class="muted">اعلام صبح (بلند بخوانید)</p>
@@ -314,7 +555,7 @@ function viewNight() {
       <section class="card">
         <h2>خلاصه‌ی شب</h2>
         <ul class="plain-list">
-          ${n.steps.map((s) => `<li>${STEP_INFO[s].title.replace(' بیدار شود', '')}: <b>${nameOf(n.actions[s])}</b></li>`).join('')}
+          ${n.steps.map((s) => `<li>${esc(stepName(s))}: <b>${nameOf(n.actions[s])}</b></li>`).join('')}
         </ul>
       </section>
     </main>
@@ -323,23 +564,23 @@ function viewNight() {
       <button class="btn primary grow" data-action="end-night">☀️ صبح شد</button>
     </footer>`;
   }
-  const info = STEP_INFO[step];
-  const actors = step === 'mafia'
-    ? state.players.filter((p) => p.alive && teamOf(p.role) === 'mafia')
-    : state.players.filter((p) => p.alive && p.role === step);
+  const info = stepInfo(step);
+  const name = stepName(step);
+  const actors = actorsFor(step, state.players);
   const targets = targetsFor(step, state.players, state.memory);
   const chosen = n.actions[step] ?? null;
+  const manual = !STEP_ASK[step];
   let detective = '';
   if (step === 'detective' && chosen) {
-    const t = byId(chosen);
-    const positive = teamOf(t.role) === 'mafia' && t.role !== 'godfather';
+    const positive = detectivePositive(byId(chosen).role);
     detective = `<p class="answer ${positive ? 'pos' : 'neg'}">پاسخ استعلام: ${positive ? '👍 مثبت (مافیا)' : '👎 منفی'}</p>`;
   }
   return `${header(`${phaseLabel()} — مرحله‌ی ${toFa(n.index + 1)} از ${toFa(n.steps.length)}`)}
   <main class="pad night-bg">
     <p class="muted">همه چشم‌ها بسته…</p>
-    <h2>${info.title}</h2>
-    <p class="muted">${actors.map((a) => `${esc(a.name)} (${ROLES[a.role].name})`).join('، ')}</p>
+    <h2>${esc(name)} بیدار شود</h2>
+    <p class="muted">${actors.map((a) => `${esc(a.name)} (${esc(roleOf(a.role).name)})`).join('، ')}</p>
+    ${manual && roleOf(step).desc ? `<p class="card small-text">${esc(roleOf(step).desc)}</p>` : ''}
     <p>${info.ask}</p>
     <div class="targets">
       ${targets.map((p) => `<button class="target ${chosen === p.id ? 'on' : ''}" data-action="pick" data-id="${p.id}">${esc(p.name)}</button>`).join('')}
@@ -349,7 +590,7 @@ function viewNight() {
   </main>
   <footer class="dock">
     <button class="btn ghost" data-action="night-back">${n.index === 0 ? 'لغو شب' : 'قبلی'}</button>
-    <button class="btn primary grow" data-action="night-next">${info.title.replace('بیدار شود', 'بخوابد')} ←</button>
+    <button class="btn primary grow" data-action="night-next">${esc(name)} بخوابد ←</button>
   </footer>`;
 }
 
@@ -364,7 +605,7 @@ function viewEnd() {
     <ul class="list">
       ${state.players.map((p) => `
         <li class="item ${p.alive ? '' : 'dead'}"><span class="grow"><b>${esc(p.name)}</b>
-        <small class="${ROLES[p.role].team}">${ROLES[p.role].icon} ${ROLES[p.role].name}</small></span>
+        <small class="${roleOf(p.role).team}">${roleLabel(p.role)}</small></span>
         <small class="muted">${p.alive ? 'زنده' : CAUSE[p.death?.cause] ?? ''}</small></li>`).join('')}
     </ul>
     <button class="btn ghost small" data-action="continue-anyway">ادامه‌ی بازی (اشتباه شده)</button>
@@ -376,7 +617,10 @@ function viewEnd() {
 }
 
 function render() {
-  const views = { players: viewPlayers, roles: viewRoles, reveal: viewReveal, game: viewGame, night: viewNight, end: viewEnd };
+  const views = {
+    players: viewPlayers, roles: viewRoles, reveal: viewReveal, game: viewGame, night: viewNight,
+    end: viewEnd, settings: viewSettings, 'role-edit': viewRoleEdit,
+  };
   app.innerHTML = (views[state.view] || viewPlayers)();
   renderTimer();
   if (state.view === 'players') document.getElementById('name-input')?.focus();
@@ -385,6 +629,11 @@ function render() {
 // ---------- actions ----------
 
 function startNewDeal() {
+  // The game keeps its own copy of the extra roles it uses, so editing or
+  // deleting a role in the settings never breaks a game in progress.
+  state.roleDefs = Object.keys(state.counts)
+    .filter((r) => state.counts[r] > 0 && ROLES[r] && !ROLE_ORDER.includes(r))
+    .map((r) => ({ ...ROLES[r] }));
   state.players = dealRoles(state.names, state.counts);
   state.memory = {};
   state.round = 1;
@@ -395,9 +644,39 @@ function startNewDeal() {
   state.log = [];
   state.winner = null;
   state.revealId = null;
+  state.revealOpen = false;
   state.menuId = null;
   state.showRoles = false;
   state.view = 'reveal';
+}
+
+function scenarioCounts(id, n) {
+  if (id.startsWith('my:')) {
+    const sc = library.scenarios.find((x) => `my:${x.id}` === id);
+    if (sc) return fitScenario(sc.roles, n);
+  }
+  if (id.startsWith('b:')) {
+    const sc = SCENARIOS.find((x) => `b:${x.id}` === id);
+    if (sc) return fitScenario(sc.roles, n);
+  }
+  return suggestRoles(n);
+}
+
+/** Changes a role's count; while the total matches the players, plain citizens make room or fill the gap. */
+function changeCount(s, role, delta) {
+  const before = s.counts[role] || 0;
+  if (before + delta < 0) return;
+  const balanced = teamCounts(s.counts).total === s.names.length;
+  s.counts[role] = before + delta;
+  if (role !== 'citizen' && balanced && (s.counts.citizen || 0) - delta >= 0) s.counts.citizen = (s.counts.citizen || 0) - delta;
+}
+
+function openRoleEditor(def, from) {
+  state.editRole = def
+    ? { ...def, isNew: false }
+    : { id: newId('c_'), name: '', icon: '', team: 'town', desc: '', kind: '', night: true, detNeg: false, isNew: true };
+  state.editFrom = from;
+  state.view = 'role-edit';
 }
 
 const actions = {
@@ -406,17 +685,84 @@ const actions = {
   'clear-names': () => confirm('همه‌ی اسم‌ها پاک شود؟') && update((s) => { s.names = []; }),
   'to-roles': () => update((s) => {
     const n = s.names.length;
-    if (!s.counts || teamCounts(s.counts).total !== n) s.counts = suggestRoles(n);
+    if (!s.counts || teamCounts(s.counts).total !== n) {
+      s.counts = scenarioCounts(s.scenarioId || 'auto', n);
+      if (!s.scenarioId) s.scenarioId = 'auto';
+    }
     s.view = 'roles';
   }),
   'to-players': () => update((s) => { s.view = 'players'; }),
-  suggest: () => update((s) => { s.counts = suggestRoles(s.names.length); }),
-  inc: (el) => update((s) => { s.counts[el.dataset.role] = (s.counts[el.dataset.role] || 0) + 1; }),
-  dec: (el) => update((s) => { s.counts[el.dataset.role] = Math.max(0, (s.counts[el.dataset.role] || 0) - 1); }),
+  'use-scenario': (el) => update((s) => {
+    s.scenarioId = el.dataset.id;
+    s.counts = scenarioCounts(el.dataset.id, s.names.length);
+  }),
+  inc: (el) => update((s) => changeCount(s, el.dataset.role, +1)),
+  dec: (el) => update((s) => changeCount(s, el.dataset.role, -1)),
+  'save-scenario': () => {
+    const cur = library.scenarios.find((x) => `my:${x.id}` === state.scenarioId);
+    const name = prompt('اسم این سناریو؟ (مثلاً: مافیای ساده‌ی جمعه‌ها)', cur?.name || '');
+    if (!name || !name.trim()) return;
+    const roles = Object.fromEntries(Object.entries(state.counts).filter(([r, c]) => c > 0 && r !== 'citizen'));
+    const same = library.scenarios.find((x) => x.name === name.trim());
+    if (same && !confirm(`سناریوی «${name.trim()}» از قبل هست. جایگزین شود؟`)) return;
+    const sc = { id: same?.id || newId('s'), name: name.trim(), roles };
+    library.scenarios = same ? library.scenarios.map((x) => (x.id === same.id ? sc : x)) : [sc, ...library.scenarios];
+    if (saveLibrary()) update((s) => { s.scenarioId = `my:${sc.id}`; });
+  },
+  'new-role': () => update((s) => openRoleEditor(null, s.view)),
+  'edit-role': (el) => update((s) => openRoleEditor(library.roles.find((d) => d.id === el.dataset.id), s.view)),
+  'edit-team': (el) => {
+    readRoleForm();
+    update((s) => { s.editRole.team = el.dataset.team; });
+  },
+  'role-edit-back': () => update((s) => { s.view = s.editFrom || 'roles'; s.editRole = null; }),
+  'delete-role': () => {
+    const d = state.editRole;
+    if (!confirm(`نقش «${d.name}» حذف شود؟ از سناریوهای ذخیره‌شده هم برداشته می‌شود.`)) return;
+    library.roles = library.roles.filter((x) => x.id !== d.id);
+    for (const sc of library.scenarios) delete sc.roles[d.id];
+    saveLibrary();
+    update((s) => {
+      if (s.counts) delete s.counts[d.id];
+      syncRoles();
+      s.view = s.editFrom || 'settings';
+      s.editRole = null;
+    });
+  },
+  'open-settings': () => update((s) => { s.settingsFrom = s.view; s.view = 'settings'; }),
+  'close-settings': () => update((s) => { s.view = s.settingsFrom && s.settingsFrom !== 'settings' ? s.settingsFrom : 'players'; }),
+  'remove-logo': () => {
+    library.brand.logo = '';
+    saveLibrary();
+    render();
+  },
+  'set-color': (el) => {
+    library.brand.color = el.dataset.c === COLORS[0] ? '' : el.dataset.c;
+    saveLibrary();
+    applyBrand();
+    render();
+  },
+  'rename-scenario': (el) => {
+    const sc = library.scenarios.find((x) => x.id === el.dataset.id);
+    const name = sc && prompt('اسم تازه‌ی سناریو؟', sc.name);
+    if (!name || !name.trim()) return;
+    sc.name = name.trim();
+    saveLibrary();
+    render();
+  },
+  'delete-scenario': (el) => {
+    const sc = library.scenarios.find((x) => x.id === el.dataset.id);
+    if (!sc || !confirm(`سناریوی «${sc.name}» حذف شود؟`)) return;
+    library.scenarios = library.scenarios.filter((x) => x.id !== sc.id);
+    saveLibrary();
+    update((s) => { if (s.scenarioId === `my:${sc.id}`) s.scenarioId = null; });
+  },
   deal: () => update(startNewDeal),
   'to-roles-confirm': () => confirm('نقش‌ها دوباره پخش شوند؟ نقش‌های فعلی از بین می‌رود.') && update((s) => { s.view = 'roles'; }),
-  reveal: (el) => update((s) => { s.revealId = el.dataset.id; }),
-  'hide-role': () => update((s) => { byId(s.revealId).seen = true; s.revealId = null; }),
+  reveal: (el) => update((s) => { s.revealId = el.dataset.id; s.revealOpen = false; }),
+  'flip-role': () => update((s) => { s.revealOpen = true; }),
+  'cancel-reveal': () => update((s) => { s.revealId = null; s.revealOpen = false; }),
+  'hide-role': () => update((s) => { byId(s.revealId).seen = true; s.revealId = null; s.revealOpen = false; }),
   'start-game': () => update((s) => { s.view = 'game'; addLog('بازی شروع شد.'); }),
   'toggle-roles': () => update((s) => { s.showRoles = !s.showRoles; }),
   menu: (el) => update((s) => { s.menuId = s.menuId === el.dataset.id ? null : el.dataset.id; }),
@@ -432,7 +778,7 @@ const actions = {
     p.death = { round: s.round, cause: 'vote' };
     s.menuId = null;
     s.votes = {};
-    addLog(`${esc(p.name)} با رأی از بازی خارج شد (${ROLES[p.role].name}).`);
+    addLog(`${esc(p.name)} با رأی از بازی خارج شد (${esc(roleOf(p.role).name)}).`);
     checkWin();
   }, { undoable: true }),
   kill: (el) => update((s) => {
@@ -475,8 +821,9 @@ const actions = {
     s.players = res.players;
     s.memory = res.memory;
     s.report = res.report;
-    const deaths = res.report.deaths.map((d) => `${nameOf(d.id)} (${ROLES[byId(d.id).role].name})`).join('، ');
+    const deaths = res.report.deaths.map((d) => `${nameOf(d.id)} (${esc(roleOf(byId(d.id).role).name)})`).join('، ');
     addLog(deaths ? `حذف در شب: ${deaths}` : 'شب بدون حذف گذشت.');
+    for (const m of res.report.manual) addLog(`${esc(roleOf(m.role).name)} ← ${nameOf(m.targetId)}`);
     s.night = null;
     s.phase = 'day';
     s.round += 1;
@@ -492,6 +839,19 @@ const actions = {
   'timer-set': (el) => { setTimer(Number(el.dataset.s)); render(); },
 };
 
+/** Copies the role form's inputs into state.editRole (before a re-render would drop them). */
+function readRoleForm() {
+  const f = app.querySelector('form[data-form="role"]');
+  if (!f || !state.editRole) return;
+  const d = state.editRole;
+  d.name = f.elements.name.value;
+  d.icon = f.elements.icon.value;
+  d.desc = f.elements.desc.value;
+  d.kind = f.elements.kind.value;
+  if (f.elements.night) d.night = f.elements.night.checked;
+  if (f.elements.detNeg) d.detNeg = f.elements.detNeg.checked;
+}
+
 app.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
   if (!el || el.disabled) return;
@@ -499,9 +859,56 @@ app.addEventListener('click', (e) => {
   if (fn) fn(el);
 });
 
+app.addEventListener('change', async (e) => {
+  if (e.target.dataset.input === 'logo') {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const logo = await readLogo(file);
+      const old = library.brand.logo;
+      library.brand.logo = logo;
+      if (!saveLibrary()) library.brand.logo = old;
+    } catch {
+      alert('این تصویر خوانده نشد. یک فایل PNG یا JPG دیگر امتحان کنید.');
+    }
+    render();
+  } else if (e.target.name === 'kind' && e.target.closest('form[data-form="role"]')) {
+    readRoleForm();
+    render();
+  }
+});
+
 app.addEventListener('submit', (e) => {
   e.preventDefault();
-  if (e.target.dataset.form !== 'add-name') return;
+  const form = e.target.dataset.form;
+  if (form === 'brand') {
+    library.brand.name = e.target.elements.name.value.trim().replace(/\s+/g, ' ');
+    saveLibrary();
+    applyBrand();
+    render();
+    return;
+  }
+  if (form === 'role') {
+    readRoleForm();
+    const d = state.editRole;
+    const name = d.name.trim().replace(/\s+/g, ' ');
+    if (!name) return;
+    if (allRoleIds().some((r) => r !== d.id && ROLES[r].name === name)) { alert('نقشی با این اسم از قبل هست.'); return; }
+    const def = {
+      id: d.id, name, icon: d.icon.trim() || (d.team === 'mafia' ? '🃏' : '🎴'), team: d.team,
+      desc: d.desc.trim(), kind: d.kind || null, night: !d.kind && !!d.night, detNeg: d.team === 'mafia' && !!d.detNeg,
+    };
+    library.roles = d.isNew ? [...library.roles, def] : library.roles.map((x) => (x.id === def.id ? def : x));
+    if (!saveLibrary()) return;
+    update((s) => {
+      syncRoles();
+      if (d.isNew && s.editFrom === 'roles' && s.counts) changeCount(s, def.id, +1);
+      s.view = s.editFrom || 'roles';
+      s.editRole = null;
+    });
+    return;
+  }
+  if (form !== 'add-name') return;
   const input = e.target.elements.name;
   const name = input.value.trim().replace(/\s+/g, ' ');
   if (!name) return;
