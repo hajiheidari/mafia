@@ -1,7 +1,8 @@
 // کش آفلاین: بعد از اولین بار باز شدن، ابزار بدون اینترنت هم کار می‌کند.
 const CACHE = 'mafia-tool-__VERSION__';
 const FILES = [
-  './', 'index.html', 'style.css', 'app.js', 'logic.js', 'scenarios.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png',
+  './', 'index.html', 'style.css', 'app.js', 'logic.js', 'scenarios.js', 'i18n.js',
+  'lang/fa.js', 'lang/en.js', 'lang/ar.js', 'lang/ru.js', 'lang/ur.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png',
   'fonts/vazirmatn-arabic-400-normal.woff2', 'fonts/vazirmatn-arabic-700-normal.woff2', 'fonts/vazirmatn-arabic-900-normal.woff2',
   'fonts/vazirmatn-latin-400-normal.woff2', 'fonts/vazirmatn-latin-700-normal.woff2', 'fonts/vazirmatn-latin-900-normal.woff2',
 ];

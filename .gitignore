@@ -11,3 +11,4 @@ dump.rdb
 mafia-app.zip
 mafia-tool.zip
 node_modules
+__pycache__/

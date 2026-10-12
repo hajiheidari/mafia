@@ -159,11 +159,21 @@ footer a { color: var(--accent-soft); text-decoration: none; }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .btn { transition: none; } }
   
 /* language switch + privacy */
-.langs { display: flex; gap: 6px; font-size: 0.85rem; }
-.langs a { padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); text-decoration: none; color: var(--muted); }
-.langs a[aria-current="page"] { color: var(--text); border-color: var(--accent-soft); }
+.langs { position: relative; font-size: 0.85rem; background: none; border: 0; border-radius: 0; padding: 0; }
+.langs summary::after, .langs[open] summary::after { content: none; }
+.langs summary { display: block; font-weight: 400; list-style: none; cursor: pointer; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.langs summary::-webkit-details-marker { display: none; }
+.langs[open] summary { color: var(--text); border-color: var(--accent-soft); }
+.langs-menu {
+  position: absolute; inset-inline-end: 0; top: calc(100% + 8px); z-index: 30; min-width: 150px;
+  display: flex; flex-direction: column; gap: 2px; padding: 6px;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+}
+.langs-menu a { padding: 8px 12px; border-radius: 10px; text-decoration: none; color: var(--text); }
+.langs-menu a:hover { background: var(--surface); }
+.langs-menu a[aria-current="page"] { color: var(--accent-soft); }
 .top-actions { display: flex; align-items: center; gap: 10px; }
-@media (max-width: 420px) { .langs a { padding: 2px 7px; font-size: 0.72rem; } .brand small { display: none; } .top-actions .btn-sm { padding: 6px 10px; } }
+@media (max-width: 420px) { .langs summary { padding: 3px 8px; font-size: 0.78rem; } .brand small { display: none; } .top-actions .btn-sm { padding: 6px 10px; } }
 .note { color: var(--muted); font-size: 0.9rem; margin-top: 14px; }
 [dir="ltr"] .step::before { content: counter(step); }
 .doc { max-width: 760px; padding: 48px 0; }

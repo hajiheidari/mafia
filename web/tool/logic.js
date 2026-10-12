@@ -1,18 +1,22 @@
 // منطق خالص بازی مافیا برای ابزار گرداننده (بدون DOM) — در مرورگر و در تست‌های Node استفاده می‌شود.
 
+// Logic only: no display text here. Role names, descriptions and error
+// messages live in the language files (see i18n.js); validateSetup returns
+// { key, vars } for the UI to translate.
+//
 // Built-in roles. Each has a `kind`: the night mechanics the tool resolves
 // automatically. Scenario and custom roles (see setExtraRoles) either borrow
 // one of these kinds — e.g. «رئیس مافیا» works like the godfather — or have
 // no kind, and then the narrator wakes them and applies their effect by hand.
 const BUILTIN = {
-  godfather: { name: 'پدرخوانده', team: 'mafia', icon: '🎩', desc: 'رئیس مافیا. شلیک شب با تصمیم اوست و استعلام کارآگاه از او «منفی» است.' },
-  lecter: { name: 'دکتر لکتر', team: 'mafia', icon: '💉', desc: 'دکتر مافیا. هر شب یکی از اعضای مافیا را از تیر اسنایپر نجات می‌دهد. خودش را فقط یک بار.' },
-  mafia: { name: 'مافیای ساده', team: 'mafia', icon: '🔪', desc: 'عضو تیم مافیا. شب‌ها با هم‌تیمی‌ها بیدار می‌شود.' },
-  doctor: { name: 'دکتر', team: 'town', icon: '🩺', desc: 'هر شب یک نفر را نجات می‌دهد. خودش را فقط یک بار، و یک نفر را دو شب پشت‌سرهم نه.' },
-  detective: { name: 'کارآگاه', team: 'town', icon: '🔎', desc: 'هر شب از یک نفر استعلام می‌گیرد. پدرخوانده را منفی می‌بیند.' },
-  sniper: { name: 'اسنایپر', team: 'town', icon: '🎯', desc: 'شب می‌تواند شلیک کند. اگر به شهروند بزند، خودش می‌میرد.' },
-  diehard: { name: 'رویین‌تن', team: 'town', icon: '🛡️', desc: 'اولین تیر شب مافیا به او اثر نمی‌کند.' },
-  citizen: { name: 'شهروند ساده', team: 'town', icon: '🏠', desc: 'توانایی شبانه ندارد. با بحث و رأی، مافیا را پیدا می‌کند.' },
+  godfather: { team: 'mafia', icon: '🎩' },
+  lecter: { team: 'mafia', icon: '💉' },
+  mafia: { team: 'mafia', icon: '🔪' },
+  doctor: { team: 'town', icon: '🩺' },
+  detective: { team: 'town', icon: '🔎' },
+  sniper: { team: 'town', icon: '🎯' },
+  diehard: { team: 'town', icon: '🛡️' },
+  citizen: { team: 'town', icon: '🏠' },
 };
 
 export const ROLE_ORDER = ['godfather', 'lecter', 'mafia', 'doctor', 'detective', 'sniper', 'diehard', 'citizen'];
@@ -22,19 +26,11 @@ export const ROLES = Object.fromEntries(ROLE_ORDER.map((id) => [id, { ...BUILTIN
 
 /** Kinds that can appear at most once in a game. */
 export const UNIQUE_KINDS = ['godfather', 'lecter', 'doctor', 'detective', 'sniper', 'diehard'];
-export const KIND_LABEL = {
-  godfather: 'مثل پدرخوانده (استعلامش منفی)',
-  lecter: 'مثل دکتر لکتر (نجات مافیا از تیر)',
-  doctor: 'مثل دکتر (نجات شبانه)',
-  detective: 'مثل کارآگاه (استعلام)',
-  sniper: 'مثل اسنایپر (شلیک شب)',
-  diehard: 'مثل رویین‌تن (یک تیر را تحمل می‌کند)',
-};
-export const TEAMS = { mafia: 'تیم مافیا', town: 'تیم شهر', indep: 'مستقل' };
+export const TEAM_IDS = ['mafia', 'town', 'indep'];
 
 /**
  * Replaces the extra (non built-in) roles. A def is
- * { id, name, team: 'mafia'|'town'|'indep', icon, desc, night: bool, kind?: one of UNIQUE_KINDS,
+ * { id, name?, desc?, team: 'mafia'|'town'|'indep', icon, desc, night: bool, kind?: one of UNIQUE_KINDS,
  *   detNeg?: detective reads «منفی», detPos?: detective reads «مثبت», immune?: the mafia's night shot never
  *   kills them, shotProof?: the sniper's shot has no effect on them, order?: wake position (see nightSteps),
  *   scenario?: id of the built-in scenario the role belongs to }.
@@ -45,10 +41,10 @@ export function setExtraRoles(defs) {
     if (!d || !d.id || BUILTIN[d.id]) continue;
     ROLES[d.id] = {
       id: d.id,
-      name: String(d.name || '؟'),
-      team: TEAMS[d.team] ? d.team : 'town',
+      name: d.name == null ? null : String(d.name),
+      team: TEAM_IDS.includes(d.team) ? d.team : 'town',
       icon: d.icon || (d.team === 'mafia' ? '🃏' : '🎴'),
-      desc: String(d.desc || ''),
+      desc: d.desc == null ? null : String(d.desc),
       night: !!d.night && !d.kind,
       kind: UNIQUE_KINDS.includes(d.kind) ? d.kind : null,
       detNeg: !!d.detNeg,
@@ -142,21 +138,24 @@ export function teamCounts(counts) {
   return { mafia, town, total: mafia + town };
 }
 
-/** Returns an error message (Persian) or null when the setup is playable. */
+/**
+ * Returns null when the setup is playable, else { key, vars } naming the
+ * problem (keys 'err.*' in the language files; role ids in vars.role/roles).
+ */
 export function validateSetup(playerCount, counts) {
-  if (playerCount < MIN_PLAYERS) return `حداقل ${MIN_PLAYERS} بازیکن لازم است.`;
-  if (playerCount > MAX_PLAYERS) return `حداکثر ${MAX_PLAYERS} بازیکن.`;
+  if (playerCount < MIN_PLAYERS) return { key: 'err.min', vars: { n: MIN_PLAYERS } };
+  if (playerCount > MAX_PLAYERS) return { key: 'err.max', vars: { n: MAX_PLAYERS } };
   const { mafia, town, total } = teamCounts(counts);
-  if (total !== playerCount) return `جمع نقش‌ها (${total}) با تعداد بازیکن‌ها (${playerCount}) برابر نیست.`;
-  if (mafia < 1) return 'حداقل یک نقش مافیا لازم است.';
-  if (mafia >= town) return 'تعداد مافیا باید از شهروندها کمتر باشد.';
+  if (total !== playerCount) return { key: 'err.total', vars: { total, n: playerCount } };
+  if (mafia < 1) return { key: 'err.noMafia', vars: {} };
+  if (mafia >= town) return { key: 'err.parity', vars: {} };
   for (const k of UNIQUE_KINDS) {
     const withKind = Object.keys(counts).filter((r) => ROLES[r] && kindOf(r) === k && counts[r] > 0);
     const n = withKind.reduce((s, r) => s + counts[r], 0);
     if (n > 1) {
       return withKind.length === 1
-        ? `از نقش «${ROLES[withKind[0]].name}» فقط یکی مجاز است.`
-        : `نقش‌های ${withKind.map((r) => `«${ROLES[r].name}»`).join(' و ')} کار یکسانی دارند؛ فقط یکی از آن‌ها مجاز است.`;
+        ? { key: 'err.unique', vars: { role: withKind[0] } }
+        : { key: 'err.sameKind', vars: { roles: withKind } };
     }
   }
   return null;
@@ -358,6 +357,3 @@ export function voteThreshold(players) {
   return Math.floor(alive / 2) + 1;
 }
 
-export function toFa(n) {
-  return String(n).replace(/\d/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[d]);
-}

@@ -2,8 +2,8 @@
 
 | Address | What | Source |
 |---|---|---|
-| `https://mafia.espadna.com` | the narrator tool (offline PWA, Persian) | `web/tool/` |
-| `https://espadna.com/mafia-app/` (`fa/`, `ar/`) | landing pages + privacy | `tools/landing.py` → `web/landing/mafia-app/` |
+| `https://mafia.espadna.com` | the narrator tool (offline PWA; fa, en, ar, ru, ur) | `web/tool/` |
+| `https://espadna.com/mafia-app/` (`fa/`, `ar/`, `ru/`, `ur/`) | landing pages + privacy | `tools/landing.py` → `web/landing/mafia-app/` |
 | `https://mafia.espadna.ir`, `https://espadna.ir/mafia-app/` | Iranian copies (national internet) | made by hajiheidari/espadna-site `mirror-ir/` |
 
 Same layout as the other Espadna apps (Tiaro, Adadi): the app's web version on
@@ -25,6 +25,19 @@ Each build writes `files.json` (every file with its sha256 + the redirects
 text) at the root of both sites; the mirror on espadna.ir copies from it.
 
 ## The tool
+
+### Languages
+
+Persian, English, Arabic, Russian and Urdu. Every visible text is a key in
+`web/tool/lang/<code>.js` (Persian is the original, `fa.js`); `i18n.js` picks
+the language — `?lang=` in the link, then the saved choice, then Persian in
+Iran, then the phone's language, else English — and handles digits, plural
+forms (Intl.PluralRules), direction and the 🌐 picker. `logic.js` holds no
+text: errors come back as `{ key, vars }`. Ready-made scenarios list their
+languages (`langs` in `scenarios.js`): the Iranian ones in Persian, three
+world classics elsewhere, plus Russia's sport and city mafia in Russian. To
+add a language: copy `en.js`, translate, register it in `LANGS` in `i18n.js`
+and in `sw.js`, and add the landing texts in `tools/landing.py`.
 
 Plain HTML/JS, no build step, no server: game state stays in the browser
 (localStorage). `web/tool/logic.js` holds the rules (tested by

@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">گاد مافیا</string>
-    <string name="title_activity_main">گاد مافیا</string>
+    <string name="app_name">Mafia God</string>
+    <string name="title_activity_main">Mafia God</string>
     <string name="package_name">com.espadna.mafia</string>
     <string name="custom_url_scheme">com.espadna.mafia</string>
 </resources>

@@ -18,10 +18,10 @@ describe('setup', () => {
 
   test('rejects wrong totals, no mafia, mafia majority, duplicate unique roles', () => {
     const c = L.suggestRoles(8);
-    expect(L.validateSetup(9, c)).toMatch(/برابر نیست/);
-    expect(L.validateSetup(4, { citizen: 4 })).toMatch(/حداقل یک نقش مافیا/);
-    expect(L.validateSetup(4, { mafia: 2, citizen: 2 })).toMatch(/کمتر باشد/);
-    expect(L.validateSetup(8, { mafia: 2, doctor: 2, citizen: 4 })).toMatch(/فقط یکی/);
+    expect(L.validateSetup(9, c)).toMatchObject({ key: 'err.total', vars: { total: 8, n: 9 } });
+    expect(L.validateSetup(4, { citizen: 4 })).toMatchObject({ key: 'err.noMafia' });
+    expect(L.validateSetup(4, { mafia: 2, citizen: 2 })).toMatchObject({ key: 'err.parity' });
+    expect(L.validateSetup(8, { mafia: 2, doctor: 2, citizen: 4 })).toMatchObject({ key: 'err.unique', vars: { role: 'doctor' } });
   });
 
   test('deal gives every role exactly once per slot', () => {
@@ -116,10 +116,6 @@ describe('win and votes', () => {
     expect(L.voteThreshold(fixed(Array(10).fill('citizen')))).toBe(6);
     expect(L.voteThreshold(fixed(Array(7).fill('citizen')))).toBe(4);
   });
-
-  test('persian digits', () => {
-    expect(L.toFa(120)).toBe('۱۲۰');
-  });
 });
 
 describe('scenario and custom roles', () => {
@@ -148,7 +144,7 @@ describe('scenario and custom roles', () => {
 
   test('at most one role per unique kind, even across names', () => {
     L.setExtraRoles(extra);
-    expect(L.validateSetup(8, { godfather: 1, s_boss: 1, citizen: 6 })).toMatch(/کار یکسانی دارند/);
+    expect(L.validateSetup(8, { godfather: 1, s_boss: 1, citizen: 6 })).toMatchObject({ key: 'err.sameKind', vars: { roles: ['godfather', 's_boss'] } });
     expect(L.validateSetup(8, { s_boss: 1, mafia: 1, s_medic: 1, citizen: 5 })).toBeNull();
     L.setExtraRoles([]);
   });
