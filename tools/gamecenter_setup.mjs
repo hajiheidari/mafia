@@ -80,13 +80,15 @@ const BOARD_TEXT = {
 /** Recurrence attempts per leaderboard; the first form Apple accepts is used. */
 const RECURRENCE = {
   [LEADERBOARDS.week]: [
-    { recurrenceStartDate: '2026-10-12T00:00:00.000Z', recurrenceDuration: 'P7D', recurrenceRule: 'FREQ=WEEKLY;INTERVAL=1' },
-    { recurrenceStartDate: '2026-10-12T00:00:00.000Z', recurrenceDuration: 'P7D', recurrenceRule: 'FREQ=DAILY;INTERVAL=7' },
+    { recurrenceStartDate: '2026-10-12T00:00:00.000Z', recurrenceDuration: 'P7DT0H0M0S', recurrenceRule: 'FREQ=WEEKLY;INTERVAL=1' },
+    { recurrenceStartDate: '2026-10-12T00:00:00.000Z', recurrenceDuration: 'P7DT0H0M0S', recurrenceRule: 'FREQ=DAILY;INTERVAL=7' },
+    { recurrenceStartDate: '2026-10-12T00:00:00.000Z', recurrenceDuration: 'P0Y0M7DT0H0M0S', recurrenceRule: 'FREQ=WEEKLY;INTERVAL=1' },
   ],
   [LEADERBOARDS.month]: [
-    { recurrenceStartDate: '2026-10-01T00:00:00.000Z', recurrenceDuration: 'P1M', recurrenceRule: 'FREQ=MONTHLY;INTERVAL=1' },
-    { recurrenceStartDate: '2026-10-01T00:00:00.000Z', recurrenceDuration: 'P30D', recurrenceRule: 'FREQ=MONTHLY;INTERVAL=1' },
-    { recurrenceStartDate: '2026-10-01T00:00:00.000Z', recurrenceDuration: 'P30D', recurrenceRule: 'FREQ=DAILY;INTERVAL=30' },
+    { recurrenceStartDate: '2026-10-01T00:00:00.000Z', recurrenceDuration: 'P1MT0H0M0S', recurrenceRule: 'FREQ=MONTHLY;INTERVAL=1' },
+    { recurrenceStartDate: '2026-10-01T00:00:00.000Z', recurrenceDuration: 'P0Y1M0DT0H0M0S', recurrenceRule: 'FREQ=MONTHLY;INTERVAL=1' },
+    { recurrenceStartDate: '2026-10-01T00:00:00.000Z', recurrenceDuration: 'P30DT0H0M0S', recurrenceRule: 'FREQ=MONTHLY;INTERVAL=1' },
+    { recurrenceStartDate: '2026-10-01T00:00:00.000Z', recurrenceDuration: 'P28DT0H0M0S', recurrenceRule: 'FREQ=DAILY;INTERVAL=28' },
   ],
 };
 

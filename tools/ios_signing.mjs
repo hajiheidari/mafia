@@ -108,6 +108,31 @@ async function ensureCapabilities(bundleIdId) {
   }
 }
 
+/**
+ * A CI run that dies between creating its certificate and its cleanup step
+ * leaves a certificate nobody can use (its private key lived only on that
+ * runner), and Apple then refuses new ones. Revokes Distribution
+ * certificates made between 10 minutes and 3 days ago: old enough not to
+ * belong to a build that is running now, young enough not to be a
+ * certificate someone made by hand and keeps using. Returns how many.
+ */
+async function revokeAbandoned() {
+  const year = 365 * 24 * 3600 * 1000;
+  const now = Date.now();
+  const certs = await api('GET', '/v1/certificates?filter[certificateType]=DISTRIBUTION&limit=50');
+  let revoked = 0;
+  for (const c of certs.data) {
+    const created = new Date(c.attributes.expirationDate).getTime() - year;
+    const age = now - created;
+    if (age > 10 * 60 * 1000 && age < 3 * 24 * 3600 * 1000) {
+      await api('DELETE', `/v1/certificates/${c.id}`);
+      console.error(`revoked an abandoned CI certificate (${c.attributes.name}, made ${Math.round(age / 60000)} min ago)`);
+      revoked++;
+    }
+  }
+  return revoked;
+}
+
 async function prepare(csrFile, outDir) {
   const ids = await api('GET', `/v1/bundleIds?filter[identifier]=${BUNDLE_ID}&limit=20`);
   let bundle = ids.data.find((b) => b.attributes.identifier === BUNDLE_ID);
@@ -125,9 +150,17 @@ async function prepare(csrFile, outDir) {
 
   // The certificate comes last, so a failure above never leaves one behind.
   const csr = readFileSync(csrFile, 'utf8').replace(/-----[^-]+-----/g, '').replace(/\s+/g, '');
-  const cert = await api('POST', '/v1/certificates', {
+  const create = () => api('POST', '/v1/certificates', {
     data: { type: 'certificates', attributes: { certificateType: 'DISTRIBUTION', csrContent: csr } },
   });
+  let cert;
+  try {
+    cert = await create();
+  } catch (e) {
+    if (!/already have a current Distribution certificate/i.test(e.message)) throw e;
+    if (!(await revokeAbandoned())) throw e;
+    cert = await create();
+  }
   writeFileSync(join(outDir, 'cert.cer'), Buffer.from(cert.data.attributes.certificateContent, 'base64'));
 
   const profileName = `Mafia CI ${new Date().toISOString().replace(/[:.]/g, '-')}`;
