@@ -77,18 +77,24 @@ const BOARD_TEXT = {
   },
 };
 
-/** Recurrence attempts per leaderboard; the first form Apple accepts is used. */
+/**
+ * Recurrence: Apple wants a start in the future, a duration in hours and a
+ * rule of the form FREQ=DAILY;INTERVAL=n. There is no calendar month, so the
+ * "month" board runs in 30-day periods. Weeks start on Monday 00:00 UTC.
+ */
+function nextMonday() {
+  const d = new Date();
+  d.setUTCHours(0, 0, 0, 0);
+  d.setUTCDate(d.getUTCDate() + ((8 - d.getUTCDay()) % 7 || 7));
+  return d.toISOString();
+}
+function nextFirstOfMonth() {
+  const d = new Date();
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)).toISOString();
+}
 const RECURRENCE = {
-  [LEADERBOARDS.week]: [
-    { recurrenceStartDate: '2026-10-12T00:00:00.000Z', recurrenceDuration: 'PT168H', recurrenceRule: 'FREQ=WEEKLY;INTERVAL=1' },
-    { recurrenceStartDate: '2026-10-12T00:00:00.000Z', recurrenceDuration: 'PT168H', recurrenceRule: 'FREQ=DAILY;INTERVAL=7' },
-    { recurrenceStartDate: '2026-10-12T00:00:00Z', recurrenceDuration: 'PT168H0M0S', recurrenceRule: 'FREQ=WEEKLY' },
-  ],
-  [LEADERBOARDS.month]: [
-    { recurrenceStartDate: '2026-10-01T00:00:00.000Z', recurrenceDuration: 'PT672H', recurrenceRule: 'FREQ=MONTHLY;INTERVAL=1' },
-    { recurrenceStartDate: '2026-10-01T00:00:00.000Z', recurrenceDuration: 'PT720H', recurrenceRule: 'FREQ=MONTHLY;INTERVAL=1' },
-    { recurrenceStartDate: '2026-10-01T00:00:00.000Z', recurrenceDuration: 'PT672H', recurrenceRule: 'FREQ=DAILY;INTERVAL=28' },
-  ],
+  [LEADERBOARDS.week]: [{ recurrenceStartDate: nextMonday(), recurrenceDuration: 'PT168H', recurrenceRule: 'FREQ=DAILY;INTERVAL=7' }],
+  [LEADERBOARDS.month]: [{ recurrenceStartDate: nextFirstOfMonth(), recurrenceDuration: 'PT720H', recurrenceRule: 'FREQ=DAILY;INTERVAL=30' }],
 };
 
 async function leaderboards(detailId) {
