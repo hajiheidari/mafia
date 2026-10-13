@@ -12,3 +12,4 @@ mafia-app.zip
 mafia-tool.zip
 node_modules
 __pycache__/
+web/wrangler.tool.deploy.toml

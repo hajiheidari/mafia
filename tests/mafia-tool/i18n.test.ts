@@ -8,12 +8,10 @@ import ar from '../../web/tool/lang/ar.js';
 // @ts-expect-error plain JS modules shipped as-is to the static host
 import ru from '../../web/tool/lang/ru.js';
 // @ts-expect-error plain JS modules shipped as-is to the static host
-import ur from '../../web/tool/lang/ur.js';
-// @ts-expect-error plain JS modules shipped as-is to the static host
 import { SCENARIOS, SCENARIO_ROLES } from '../../web/tool/scenarios.js';
 
 type Table = Record<string, string | Record<string, string>>;
-const TABLES: Record<string, Table> = { fa, en, ar, ru, ur };
+const TABLES: Record<string, Table> = { fa, en, ar, ru };
 const forms = (v: Table[string]) => (typeof v === 'string' ? [v] : Object.values(v));
 const holes = (v: Table[string]) => new Set(forms(v).flatMap((s) => s.match(/\{\w+\}/g) ?? []));
 // Scenario texts exist only in the languages that offer the scenario.
@@ -57,8 +55,4 @@ describe('language files', () => {
     }
   });
 
-  test('Urdu uses Urdu letters, not Arabic kaf/yeh', () => {
-    const text = Object.values(ur).flatMap(forms).join(' ');
-    expect(text).not.toMatch(/[كي]/);
-  });
 });

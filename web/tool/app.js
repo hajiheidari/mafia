@@ -1,10 +1,13 @@
 import {
   ROLES, ROLE_ORDER, MIN_PLAYERS, MAX_PLAYERS, UNIQUE_KINDS, TEAM_IDS,
   suggestRoles, fitScenario, minPlayersFor, teamCounts, validateSetup, dealRoles, nightSteps, actorsFor, targetsFor,
-  resolveNight, winner, voteThreshold, teamOf, detectivePositive, setExtraRoles, allRoleIds,
+  resolveNight, winner, voteThreshold, defenseList, finalVote, teamOf, detectivePositive, setExtraRoles, allRoleIds,
 } from './logic.js';
 import { SCENARIOS as ALL_SCENARIOS, SCENARIO_ROLES } from './scenarios.js';
 import { LANGS, detectLang, setLang, getLang, t, num, joinList, arrowBack, arrowNext } from './i18n.js';
+import { isIOSApp, isAndroidApp, gameCenter, icloud } from './native.js';
+import { LEADERBOARDS, MEDALS, emptyStats, recordGame, recentCounts, medalProgress } from './stats.js';
+import * as backup from './backup.js';
 
 setLang(detectLang());
 /** Ready-made scenarios offered in the current language. */
@@ -13,29 +16,129 @@ const scenarios = () => ALL_SCENARIOS.filter((sc) => sc.langs.includes(getLang()
 const STORE_KEY = 'mafia-tool-v1';
 const NAMES_KEY = 'mafia-tool-names';
 const LIB_KEY = 'mafia-tool-library';
+const STATS_KEY = 'mafia-tool-stats';
+const BACKUP_KEY = 'mafia-tool-backup';
 
 const COLORS = ['#7C5CFC', '#E5484D', '#F76B15', '#FFB224', '#30A46C', '#0091FF', '#D6409F', '#8D8D99'];
 
 // ---------- library: the group's brand, own roles and saved scenarios (kept on this phone) ----------
 
-function loadLibrary() {
-  let lib = null;
-  try { lib = JSON.parse(localStorage.getItem(LIB_KEY) || 'null'); } catch { /* ignore */ }
+function normalizeLibrary(lib) {
   return {
     brand: { name: '', logo: '', color: '', ...(lib?.brand || {}) },
     roles: Array.isArray(lib?.roles) ? lib.roles : [],
     scenarios: Array.isArray(lib?.scenarios) ? lib.scenarios : [],
+    savedAt: Number(lib?.savedAt) || 0,
   };
 }
+function loadLibrary() {
+  let lib = null;
+  try { lib = JSON.parse(localStorage.getItem(LIB_KEY) || 'null'); } catch { /* ignore */ }
+  return normalizeLibrary(lib);
+}
 let library = loadLibrary();
-function saveLibrary() {
+/** Saves the library on the phone, then copies it to iCloud and the recovery code (if any). */
+function saveLibrary({ sync = true } = {}) {
+  if (sync) library.savedAt = Date.now();
   try {
     localStorage.setItem(LIB_KEY, JSON.stringify(library));
-    return true;
   } catch {
     alert(t('err.storage'));
     return false;
   }
+  if (sync) {
+    icloud.set('library', JSON.stringify(library)).catch(() => {});
+    scheduleBackup();
+    syncGameCenter();
+  }
+  return true;
+}
+
+// ---------- stats, Game Center, iCloud, recovery code ----------
+
+const readJson = (key, fallback) => {
+  try { return JSON.parse(localStorage.getItem(key) || 'null') ?? fallback; } catch { return fallback; }
+};
+const writeJson = (key, value) => {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage full: keep going */ }
+};
+
+let stats = readJson(STATS_KEY, emptyStats());
+const gc = { authenticated: false, name: '' };
+
+/** Sends this period's game counts and the medal progress to Game Center (iPhone only). */
+function syncGameCenter() {
+  if (!isIOSApp() || !gc.authenticated) return;
+  const times = stats.games.map((g) => g.at);
+  for (const id of Object.values(LEADERBOARDS)) gameCenter.submitPeriodCount(id, times).catch(() => {});
+  const done = medalProgress(stats, library).filter((m) => m.percent > 0).map(({ id, percent }) => ({ id, percent }));
+  gameCenter.report(done).catch(() => {});
+}
+
+function signInGameCenter() {
+  return gameCenter.signIn().then((info) => {
+    gc.authenticated = !!info?.authenticated;
+    gc.name = info?.name || '';
+    syncGameCenter();
+    if (state.view === 'settings') render();
+  }).catch(() => {});
+}
+
+/** A finished game (a side won) counts once for stats, rankings and medals. */
+function countGame() {
+  if (!state.gameId) state.gameId = newId('g');
+  stats = recordGame(stats, {
+    id: state.gameId,
+    at: Date.now(),
+    players: state.players.length,
+    nights: Math.max(0, state.round - 1),
+    scenario: state.scenarioId || 'auto',
+  });
+  writeJson(STATS_KEY, stats);
+  syncGameCenter();
+}
+
+/** Takes the iCloud copy of the library when it is newer (new phone, reinstall, another device). */
+function pullICloud() {
+  const hasContent = (lib) => !!(lib.roles.length || lib.scenarios.length || lib.brand.name || lib.brand.logo);
+  icloud.get('library').then((text) => {
+    const cloud = text ? normalizeLibrary(JSON.parse(text)) : null;
+    if (!cloud || (cloud.savedAt || 0) < (library.savedAt || 0)) {
+      // iCloud is empty or older: this phone's copy wins.
+      if (hasContent(library)) icloud.set('library', JSON.stringify(library)).catch(() => {});
+      return;
+    }
+    if (cloud.savedAt === library.savedAt) return;
+    library = normalizeLibrary(cloud);
+    saveLibrary({ sync: false });
+    syncRoles();
+    applyBrand();
+    render();
+  }).catch(() => {});
+}
+
+let backupState = readJson(BACKUP_KEY, null); // { code, savedAt, failed }
+let backupTimer = null;
+let backupBusy = false;
+
+/** Saves the library under the recovery code a moment after the last change. */
+function scheduleBackup() {
+  if (!backupState?.code) return;
+  clearTimeout(backupTimer);
+  backupTimer = setTimeout(() => runBackup(), 1500);
+}
+function runBackup() {
+  if (!backupState?.code) return Promise.resolve();
+  backupBusy = true;
+  if (state.view === 'settings') render();
+  return backup.upload(backupState.code, { library })
+    .then(() => { backupState = { ...backupState, savedAt: Date.now(), failed: false }; })
+    .catch(() => { backupState = { ...backupState, failed: true }; })
+    .finally(() => {
+      backupBusy = false;
+      writeJson(BACKUP_KEY, backupState);
+      if (state.view === 'settings') render();
+    });
 }
 
 /** Registers every role the tool can show: scenario roles, the group's roles, and the roles of the running game. */
@@ -188,7 +291,8 @@ function logText(l) {
   const v = { ...l.vars };
   if (v.pid) v.name = nameOf(v.pid);
   if (v.role) v.role = esc(roleOf(v.role).name);
-  if (v.list) v.list = joinList(v.list.map((pid) => `${nameOf(pid)} (${esc(roleOf(byId(pid)?.role).name)})`));
+  if (v.pids) v.list = joinList(v.pids.map(nameOf));
+  else if (v.list) v.list = joinList(v.list.map((pid) => `${nameOf(pid)} (${esc(roleOf(byId(pid)?.role).name)})`));
   return { at: phaseLabel(l.phase, l.round), text: t(`log.${l.key}`, v) };
 }
 function checkWin() {
@@ -197,6 +301,7 @@ function checkWin() {
     state.winner = w;
     state.view = 'end';
     addLog(w === 'mafia' ? 'winMafia' : 'winTown');
+    countGame();
   }
 }
 
@@ -336,7 +441,6 @@ function viewSetup() {
         </button></li>`).join('')}
     </ul>
     ${minMore.length ? `<p class="muted small-text center">${t('setup.more', { n: more.length, min: Math.min(...minMore) })}</p>` : ''}
-    ${languagePicker()}
   </main>`;
 }
 
@@ -469,6 +573,72 @@ function viewRoleEdit() {
   </main>`;
 }
 
+function statsCard() {
+  const c = recentCounts(stats);
+  const medals = medalProgress(stats, library);
+  const won = medals.filter((m) => m.percent >= 100).length;
+  return `
+  <section class="card">
+    <p class="label">🏅 ${t('stats.title')}</p>
+    <div class="stat-row">
+      <div><b>${num(c.week)}</b><small>${t('stats.week')}</small></div>
+      <div><b>${num(c.month)}</b><small>${t('stats.month')}</small></div>
+      <div><b>${num(c.total)}</b><small>${t('stats.total')}</small></div>
+    </div>
+    <p class="muted small-text">${t('stats.note')}</p>
+    <details class="medals">
+      <summary>${t('stats.medals', { n: won, total: MEDALS.length })}</summary>
+      <ul class="medal-list">
+        ${medals.map((m) => `
+          <li class="${m.percent >= 100 ? 'won' : ''}">
+            <span class="medal-icon">${m.percent >= 100 ? '🏅' : '○'}</span>
+            <span class="grow"><b>${t(`medal.${m.key}`)}</b><small>${t(`medal.${m.key}.desc`)}</small></span>
+            ${m.percent < 100 ? `<small class="muted">${new Intl.NumberFormat(getLang(), { style: 'percent' }).format(m.percent / 100)}</small>` : ''}
+          </li>`).join('')}
+      </ul>
+    </details>
+    ${isIOSApp() ? `
+    <div class="gc">
+      <p class="label">🎮 ${t('gc.title')}</p>
+      ${gc.authenticated
+        ? `<p class="small-text">${t('gc.signedIn', { name: esc(gc.name) })}</p>
+           <div class="row wrap">
+             <button class="btn primary small" data-action="gc-show" data-view="leaderboards">${t('gc.leaderboards')}</button>
+             <button class="btn ghost small" data-action="gc-show" data-view="achievements">${t('gc.achievements')}</button>
+           </div>`
+        : `<button class="btn primary small" data-action="gc-sign-in">${t('gc.signIn')}</button>`}
+      <p class="muted small-text">${t('gc.note')}</p>
+    </div>` : ''}
+  </section>`;
+}
+
+function backupCard() {
+  const b = backupState;
+  const when = b?.savedAt
+    ? new Intl.DateTimeFormat(getLang(), { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(b.savedAt)) : '';
+  return `
+  <section class="card">
+    <p class="label">☁️ ${t('backup.title')}</p>
+    ${isIOSApp() ? `<p class="small-text">${t('backup.icloud')}</p>` : ''}
+    ${isAndroidApp() ? `<p class="small-text">${t('backup.android')}</p>` : ''}
+    <p class="muted small-text">${t('backup.codeIntro')}</p>
+    ${b?.code ? `
+      <p class="label">${t('backup.yourCode')}</p>
+      <div class="code-box" dir="ltr">${backup.formatCode(b.code)}</div>
+      <p class="muted small-text">${t('backup.keep')}</p>
+      <p class="small-text ${b.failed ? 'error' : 'muted'}">${backupBusy ? t('backup.working') : b.failed ? t('backup.failed') : when ? t('backup.savedAt', { when }) : ''}</p>
+      <div class="row wrap">
+        <button class="btn ghost small" data-action="backup-copy">${t('backup.copy')}</button>
+        <button class="btn ghost small" data-action="backup-now" ${backupBusy ? 'disabled' : ''}>${t('backup.saveNow')}</button>
+      </div>`
+      : `<button class="btn primary small" data-action="backup-make" ${backupBusy ? 'disabled' : ''}>${backupBusy ? t('backup.working') : t('backup.make')}</button>`}
+    <form class="form restore" data-form="restore">
+      <label>${t('backup.restoreTitle')}<input name="code" maxlength="16" autocomplete="off" autocapitalize="characters" spellcheck="false" dir="ltr" placeholder="${t('backup.restorePh')}"></label>
+      <button class="btn ghost small" type="submit">${t('backup.restore')}</button>
+    </form>
+  </section>`;
+}
+
 function viewSettings() {
   const b = library.brand;
   return `${header(t('settings.title'), 'close-settings', '<span></span>')}
@@ -491,6 +661,8 @@ function viewSettings() {
     </section>
 
     ${languagePicker()}
+    ${statsCard()}
+    ${backupCard()}
 
     <section class="card">
       <p class="label">${t('settings.myScenarios')}</p>
@@ -565,15 +737,18 @@ function playerRow(p) {
   const death = p.death ? `<small class="muted">${cause(p.death.cause)} · ${num(p.death.round)}</small>` : '';
   const votes = state.votes[p.id] || 0;
   const open = state.menuId === p.id;
+  const v = state.vote;
+  const accused = v?.accused?.includes(p.id);
+  const canVote = p.alive && state.phase === 'day' && (!v || (v.stage === 'final' && accused));
   return `
   <li class="item player ${p.alive ? '' : 'dead'}">
     <button class="grow plain" data-action="menu" data-id="${p.id}">
-      <b>${esc(p.name)}</b>${roleTxt}${death}
+      <b>${esc(p.name)}</b>${accused ? ` <em class="tag accused">${t('vote.accused')}</em>` : ''}${roleTxt}${death}
     </button>
-    ${p.alive && state.phase === 'day' ? `
+    ${canVote ? `
       <span class="stepper">
         <button class="icon-btn small" data-action="vote-inc" data-id="${p.id}" aria-label="${t('a11y.voteInc')}">+</button>
-        <b class="votes ${votes >= voteThreshold(state.players) ? 'hot' : ''}">${num(votes)}</b>
+        <b class="votes ${!v && votes >= voteThreshold(state.players) ? 'hot' : ''}">${num(votes)}</b>
         <button class="icon-btn small" data-action="vote-dec" data-id="${p.id}" aria-label="${t('a11y.voteDec')}">−</button>
       </span>` : ''}
   </li>
@@ -610,14 +785,52 @@ function viewGame() {
       ${state.phase === 'day' ? `<span class="chip">${t('game.threshold', { n: voteThreshold(state.players) })}</span>` : ''}
       <button class="btn ghost small" data-action="toggle-roles">${state.showRoles ? t('game.hideRoles') : t('game.showRoles')}</button>
     </div>
+    ${state.phase === 'day' ? voteCard() : ''}
     <ul class="list">${state.players.map(playerRow).join('')}</ul>
-    ${state.phase === 'day' && Object.keys(state.votes).length ? `<button class="btn ghost small" data-action="clear-votes">${t('game.clearVotes')}</button>` : ''}
+    ${state.phase === 'day' && Object.values(state.votes).some((x) => x > 0) ? `<button class="btn ghost small" data-action="clear-votes">${t('game.clearVotes')}</button>` : ''}
     ${state.log.length ? `<details class="log"><summary>${t('game.history', { n: state.log.length })}</summary><ul>${state.log.map(logText).map((l) => `<li><b>${l.at}:</b> ${l.text}</li>`).join('')}</ul></details>` : ''}
     <button class="btn ghost small danger-text" data-action="new-game">${t('game.newGame')}</button>
   </main>
   <footer class="dock">
     <button class="btn primary block" data-action="start-night">${t('game.startNight', { n: state.round })}</button>
   </footer>`;
+}
+
+/**
+ * The day's vote, in two rounds: the first vote sends everyone at the
+ * threshold to the defense; after their defense a final vote among them
+ * decides who leaves, and a tie is the narrator's call.
+ */
+function voteCard() {
+  const v = state.vote;
+  const names = (ids) => joinList(ids.map((id) => `<b>${nameOf(id)}</b>`));
+  let body;
+  if (!v) {
+    body = `<p class="muted small-text">${t('vote.first', { n: voteThreshold(state.players) })}</p>
+      ${state.voteNote ? `<p class="small-text">${t(state.voteNote)}</p>` : ''}
+      <button class="btn primary block" data-action="vote-submit">${t('vote.submit')}</button>`;
+  } else if (v.stage === 'defense') {
+    body = `<p>${t('vote.defense', { list: names(v.accused) })}</p>
+      <p class="muted small-text">${t('vote.defenseHint')}</p>
+      <button class="btn primary block" data-action="vote-final">${t('vote.startFinal')}</button>`;
+  } else if (v.stage === 'final') {
+    body = `<p class="muted small-text">${t('vote.final', { list: names(v.accused) })}</p>
+      <button class="btn danger block" data-action="vote-final-submit">${t('vote.submitFinal')}</button>`;
+  } else {
+    body = `<p>${t('vote.tie', { list: names(v.tie) })}</p>
+      <div class="row wrap">
+        ${v.tie.map((id) => `<button class="btn danger small" data-action="vote-out" data-id="${id}">${t('vote.out', { name: nameOf(id) })}</button>`).join('')}
+        <button class="btn ghost small" data-action="vote-nobody">${t('vote.nobody')}</button>
+      </div>`;
+  }
+  return `
+  <section class="card vote-card">
+    <div class="row between">
+      <p class="label">🗳️ ${t('vote.title')}</p>
+      ${v ? `<button class="btn ghost small" data-action="vote-cancel">${t('vote.cancel')}</button>` : ''}
+    </div>
+    ${body}
+  </section>`;
 }
 
 function morningCard() {
@@ -718,7 +931,18 @@ function render() {
     setup: viewSetup, players: viewPlayers, roles: viewRoles, reveal: viewReveal, game: viewGame, night: viewNight,
     end: viewEnd, settings: viewSettings, 'role-edit': viewRoleEdit,
   };
+  // Keep what the user is typing when something in the background re-renders.
+  const typed = [...app.querySelectorAll('form[data-form] input[name]:not([type="file"]):not([type="checkbox"]), form[data-form] textarea[name]')]
+    .filter((el) => el.value !== el.defaultValue)
+    .map((el) => [`${el.form.dataset.form}/${el.name}`, el.value]);
+  const focused = document.activeElement?.form ? `${document.activeElement.form.dataset.form}/${document.activeElement.name}` : null;
   app.innerHTML = (views[state.view] || viewSetup)();
+  for (const [key, value] of typed) {
+    const [form, name] = key.split('/');
+    const el = app.querySelector(`form[data-form="${form}"] [name="${name}"]`);
+    if (el) el.value = value;
+  }
+  if (focused) app.querySelector(`form[data-form="${focused.split('/')[0]}"] [name="${focused.split('/')[1]}"]`)?.focus();
   renderTimer();
   if (shownView !== state.view) window.scrollTo(0, 0);
   shownView = state.view;
@@ -740,12 +964,15 @@ function startNewDeal() {
   state.night = null;
   state.report = null;
   state.votes = {};
+  state.vote = null;
+  state.voteNote = null;
   state.log = [];
   state.winner = null;
   state.revealId = null;
   state.revealOpen = false;
   state.menuId = null;
   state.showRoles = false;
+  state.gameId = newId('g');
   state.view = 'reveal';
 }
 
@@ -770,6 +997,21 @@ function changeCount(s, role, delta) {
   if (role !== 'citizen' && balanced && (s.counts.citizen || 0) - delta >= 0) s.counts.citizen = (s.counts.citizen || 0) - delta;
 }
 
+function endVote(s) {
+  s.vote = null;
+  s.votes = {};
+  s.voteNote = null;
+}
+function voteOut(s, id) {
+  const p = s.players.find((x) => x.id === id);
+  p.alive = false;
+  p.death = { round: s.round, cause: 'vote' };
+  s.menuId = null;
+  endVote(s);
+  addLog('voteOut', { pid: p.id, role: p.role });
+  checkWin();
+}
+
 function openRoleEditor(def, from) {
   state.editRole = def
     ? { ...def, isNew: false }
@@ -780,6 +1022,26 @@ function openRoleEditor(def, from) {
 
 const actions = {
   undo,
+  'gc-sign-in': () => signInGameCenter(),
+  'gc-show': (el) => gameCenter.show(el.dataset.view).catch(() => {}),
+  'backup-make': () => {
+    backupState = { code: backup.newCode(), savedAt: 0, failed: false };
+    runBackup().then(() => {
+      if (backupState.failed) {
+        backupState = null;
+        writeJson(BACKUP_KEY, null);
+        alert(t('backup.netError'));
+        render();
+      } else {
+        alert(t('backup.auto'));
+      }
+    });
+  },
+  'backup-now': () => runBackup().then(() => backupState?.failed && alert(t('backup.netError'))),
+  'backup-copy': () => {
+    const text = backup.formatCode(backupState.code);
+    (navigator.clipboard?.writeText(text) ?? Promise.reject()).then(() => alert(t('backup.copied')), () => prompt(t('backup.yourCode'), text));
+  },
   'set-lang': (el) => {
     setLang(el.dataset.lang, { remember: true });
     applyBrand();
@@ -874,18 +1136,36 @@ const actions = {
   'vote-inc': (el) => update((s) => {
     const max = s.players.filter((p) => p.alive).length;
     s.votes[el.dataset.id] = Math.min(max, (s.votes[el.dataset.id] || 0) + 1);
+    s.voteNote = null;
   }),
   'vote-dec': (el) => update((s) => { s.votes[el.dataset.id] = Math.max(0, (s.votes[el.dataset.id] || 0) - 1); }),
   'clear-votes': () => update((s) => { s.votes = {}; }),
-  'vote-out': (el) => update((s) => {
-    const p = byId(el.dataset.id);
-    p.alive = false;
-    p.death = { round: s.round, cause: 'vote' };
-    s.menuId = null;
+  'vote-out': (el) => update((s) => voteOut(s, el.dataset.id), { undoable: true }),
+  'vote-submit': () => update((s) => {
+    const accused = defenseList(s.players, s.votes);
     s.votes = {};
-    addLog('voteOut', { pid: p.id, role: p.role });
-    checkWin();
+    s.menuId = null;
+    if (!accused.length) {
+      s.voteNote = 'vote.noneUp';
+      addLog('voteNone');
+      return;
+    }
+    s.voteNote = null;
+    s.vote = { stage: 'defense', accused };
+    addLog('defense', { pids: accused });
   }, { undoable: true }),
+  'vote-final': () => update((s) => { s.vote.stage = 'final'; s.votes = {}; }),
+  'vote-final-submit': () => update((s) => {
+    const res = finalVote(s.vote.accused, s.votes);
+    if (res.out) voteOut(s, res.out);
+    else if (res.tie.length) s.vote = { ...s.vote, stage: 'tie', tie: res.tie };
+    else {
+      addLog('finalNone');
+      endVote(s);
+    }
+  }, { undoable: true }),
+  'vote-nobody': () => update((s) => { addLog('finalNone'); endVote(s); }, { undoable: true }),
+  'vote-cancel': () => update((s) => endVote(s), { undoable: true }),
   kill: (el) => update((s) => {
     const p = byId(el.dataset.id);
     p.alive = false;
@@ -908,6 +1188,7 @@ const actions = {
     s.votes = {};
     s.menuId = null;
     s.report = null;
+    endVote(s);
     s.night = { steps: nightSteps(s.players), index: 0, actions: {}, touched: {} };
     s.view = 'night';
   }, { undoable: true }),
@@ -995,6 +1276,23 @@ app.addEventListener('submit', (e) => {
     render();
     return;
   }
+  if (form === 'restore') {
+    const code = backup.normalizeCode(e.target.elements.code.value);
+    if (!code) { alert(t('backup.badCode')); return; }
+    backup.download(code).then((data) => {
+      if (!data?.library) { alert(t('backup.notFound')); return; }
+      if (!confirm(t('backup.confirmRestore'))) return;
+      library = normalizeLibrary(data.library);
+      backupState = { code, savedAt: Date.now(), failed: false };
+      writeJson(BACKUP_KEY, backupState);
+      saveLibrary();
+      syncRoles();
+      applyBrand();
+      render();
+      alert(t('backup.restored'));
+    }, () => alert(t('backup.netError')));
+    return;
+  }
   if (form === 'role') {
     readRoleForm();
     const d = state.editRole;
@@ -1026,6 +1324,12 @@ app.addEventListener('submit', (e) => {
 });
 
 render();
+
+if (isIOSApp()) {
+  signInGameCenter();
+  pullICloud();
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') pullICloud(); });
+}
 
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
   navigator.serviceWorker.register('sw.js').catch(() => {});

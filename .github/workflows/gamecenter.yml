@@ -1,0 +1,34 @@
+# Sets up Game Center in App Store Connect: weekly and monthly leaderboards
+# of games hosted, and one achievement (medal) per entry of web/tool/stats.js
+# with texts from web/tool/lang and images from mobile/gamecenter/medals.
+# Run it by hand (Actions → Game Center → Run workflow) after adding medals;
+# it only creates what is missing.
+name: Game Center
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - web/tool/stats.js
+      - mobile/gamecenter/**
+      - tools/gamecenter_setup.mjs
+
+permissions:
+  contents: read
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Create leaderboards and achievements
+        env:
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+          IOS_BUNDLE_ID: com.espadna.mafia
+        run: node tools/gamecenter_setup.mjs

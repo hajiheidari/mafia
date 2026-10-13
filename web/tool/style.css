@@ -235,3 +235,46 @@ select { min-height: 48px; }
 .row.between { justify-content: space-between; align-items: center; }
 .row.between .label { margin: 0; }
 input:disabled { opacity: 0.5; }
+
+/* ---- day vote ---- */
+.vote-card { display: flex; flex-direction: column; gap: 8px; border-color: rgba(229, 72, 77, 0.35); }
+.vote-card p { margin: 0; }
+.tag.accused { display: inline-block; padding: 0 8px; border-radius: 999px; background: var(--mafia-bg); color: var(--mafia); font-size: 0.72rem; vertical-align: middle; }
+
+/* ---- iPad, unfolded phones and desktops: wider page, two columns ---- */
+@media (min-width: 720px) {
+  html { font-size: 18px; }
+  #app { max-width: 920px; }
+  .pad { padding: 24px 32px; gap: 18px; }
+  .dock { padding-inline: 32px; }
+  .list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .list > li { min-width: 0; }
+  .list > .menu, .more-roles, .log ul { grid-column: 1 / -1; }
+  .log ul, .plain-list { display: block; }
+  .grid-names { grid-template-columns: repeat(3, 1fr); }
+  .targets { grid-template-columns: repeat(3, 1fr); }
+  .reveal h2 { font-size: 2.8rem; }
+  .big-icon { font-size: 5rem; }
+  .back-face { width: 340px; }
+}
+@media (min-width: 1100px) {
+  #app { max-width: 1100px; }
+  .grid-names, .targets { grid-template-columns: repeat(4, 1fr); }
+}
+
+/* ---- stats, medals, backup ---- */
+.stat-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center; }
+.stat-row div { background: var(--surface-2); border-radius: 14px; padding: 10px 4px; }
+.stat-row b { display: block; font-size: 1.6rem; font-weight: 900; }
+.stat-row small { color: var(--muted); }
+.medals { margin-top: 10px; }
+.medals summary { cursor: pointer; font-weight: 700; }
+.medal-list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.medal-list li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 12px; background: var(--surface-2); opacity: 0.6; }
+.medal-list li.won { opacity: 1; border: 1px solid rgba(255, 178, 36, 0.4); }
+.medal-list small { color: var(--muted); }
+.medal-icon { font-size: 1.4rem; width: 28px; text-align: center; }
+.gc { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+.gc .label, .gc p { margin: 0; }
+.code-box { font: 900 1.7rem/1.2 ui-monospace, 'SF Mono', Menlo, Consolas, monospace; letter-spacing: 0.12em; text-align: center; padding: 12px; border-radius: 14px; background: var(--surface-2); border: 1px dashed var(--accent); user-select: all; }
+.restore { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }

@@ -1,10 +1,16 @@
-# mafia.espadna.com: the narrator tool (static, Cloudflare Workers assets).
-# Deployed by .github/workflows/web.yml; never run `wrangler deploy` by hand.
+# mafia.espadna.com: the narrator tool (static, Cloudflare Workers assets)
+# plus the recovery-code API (worker/tool.js, only for /api/*). The KV
+# namespace for backups is found or created by tools/cf_kv.mjs and added at
+# deploy time. Deployed by .github/workflows/web.yml; never run
+# `wrangler deploy` by hand.
 name = "mafia"
+main = "worker/tool.js"
 compatibility_date = "2026-10-01"
 routes = [{ pattern = "mafia.espadna.com", custom_domain = true }]
 
 [assets]
 directory = "../build/tool"
+binding = "ASSETS"
+run_worker_first = ["/api/*"]
 html_handling = "auto-trailing-slash"
 not_found_handling = "single-page-application"

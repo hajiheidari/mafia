@@ -2,8 +2,8 @@
 
 | Address | What | Source |
 |---|---|---|
-| `https://mafia.espadna.com` | the narrator tool (offline PWA; fa, en, ar, ru, ur) | `web/tool/` |
-| `https://espadna.com/mafia-app/` (`fa/`, `ar/`, `ru/`, `ur/`) | landing pages + privacy | `tools/landing.py` → `web/landing/mafia-app/` |
+| `https://mafia.espadna.com` | the narrator tool (offline PWA; fa, en, ar, ru) | `web/tool/` |
+| `https://espadna.com/mafia-app/` (`fa/`, `ar/`, `ru/`) | landing pages + privacy | `tools/landing.py` → `web/landing/mafia-app/` |
 | `https://mafia.espadna.ir`, `https://espadna.ir/mafia-app/` | Iranian copies (national internet) | made by hajiheidari/espadna-site `mirror-ir/` |
 
 Same layout as the other Espadna apps (Tiaro, Adadi): the app's web version on
@@ -28,7 +28,7 @@ text) at the root of both sites; the mirror on espadna.ir copies from it.
 
 ### Languages
 
-Persian, English, Arabic, Russian and Urdu. Every visible text is a key in
+Persian, English, Arabic and Russian. Every visible text is a key in
 `web/tool/lang/<code>.js` (Persian is the original, `fa.js`); `i18n.js` picks
 the language — `?lang=` in the link, then the saved choice, then Persian in
 Iran, then the phone's language, else English — and handles digits, plural
@@ -44,3 +44,15 @@ Plain HTML/JS, no build step, no server: game state stays in the browser
 `tests/mafia-tool/logic.test.ts`); `app.js` is the UI. The service worker
 (`sw.js`) makes it work offline after the first visit (HTTPS only).
 The same files are packed into the Android/iOS apps (`mobile/`).
+
+### Stats, medals and the recovery code
+
+- `web/tool/stats.js`: games are counted when a side wins; the settings show
+  the last 7/30 days, the total and the medals. On iPhone the same numbers go
+  to Game Center (see `mobile/README.md`).
+- Recovery code (`web/tool/backup.js`): a 10-character code. The phone
+  encrypts the group's library with AES-GCM using a key derived from the code
+  and stores it at `https://mafia.espadna.com/api/backup/<sha256(code)>`,
+  served by `web/worker/tool.js` from Workers KV (`mafia-backups`, created by
+  `tools/cf_kv.mjs` during deploy; the API token needs *Workers KV Storage:
+  Edit*). The server never sees the code or the content.

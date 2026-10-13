@@ -7,14 +7,12 @@ import fa from './lang/fa.js';
 import en from './lang/en.js';
 import ar from './lang/ar.js';
 import ru from './lang/ru.js';
-import ur from './lang/ur.js';
 
 export const LANGS = {
   fa: { name: 'فارسی', dir: 'rtl', digits: '۰۱۲۳۴۵۶۷۸۹', table: fa },
   en: { name: 'English', dir: 'ltr', digits: null, table: en },
   ar: { name: 'العربية', dir: 'rtl', digits: '٠١٢٣٤٥٦٧٨٩', table: ar },
   ru: { name: 'Русский', dir: 'ltr', digits: null, table: ru },
-  ur: { name: 'اردو', dir: 'rtl', digits: null, table: ur },
 };
 
 const LANG_KEY = 'mafia-tool-lang';
@@ -89,7 +87,7 @@ export function t(key, vars = {}) {
   });
 }
 
-/** Joins a list the way the language does (، in Persian/Arabic/Urdu, comma otherwise). */
+/** Joins a list the way the language does (، in Persian and Arabic, comma otherwise). */
 export const joinList = (items) => items.join(t('list.sep'));
 
 /** Arrow pointing back / forward in the reading direction. */

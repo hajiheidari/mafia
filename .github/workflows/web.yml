@@ -53,5 +53,12 @@ jobs:
             echo "::warning::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID not set: built but not deployed."
             exit 0
           fi
-          npx --yes wrangler@4 deploy -c web/wrangler.tool.toml
+          # Storage for recovery-code backups (found or created, then bound).
+          cp web/wrangler.tool.toml web/wrangler.tool.deploy.toml
+          if kv_id=$(node tools/cf_kv.mjs mafia-backups); then
+            printf '\n[[kv_namespaces]]\nbinding = "BACKUPS"\nid = "%s"\n' "$kv_id" >> web/wrangler.tool.deploy.toml
+          else
+            echo "::warning::Could not get the KV namespace (the API token needs Workers KV Storage: Edit). The recovery code will answer 503 until then."
+          fi
+          npx --yes wrangler@4 deploy -c web/wrangler.tool.deploy.toml
           npx --yes wrangler@4 deploy -c web/wrangler.landing.toml

@@ -112,6 +112,20 @@ describe('win and votes', () => {
     expect(L.winner(ps)).toBe('town');
   });
 
+  test('first vote sends everyone at the threshold to the defense, most votes first', () => {
+    const ps = fixed(Array(10).fill('citizen')); // threshold 6
+    expect(L.defenseList(ps, { p1: 6, p2: 7, p3: 5 })).toEqual(['p2', 'p1']);
+    expect(L.defenseList(ps, { p1: 5 })).toEqual([]);
+    ps[1]!.alive = false; // dead players never go
+    expect(L.defenseList(ps, { p2: 9 })).toEqual([]);
+  });
+
+  test('final vote: single top leaves, ties go to the narrator, no votes means nobody', () => {
+    expect(L.finalVote(['p1', 'p2'], { p1: 3, p2: 5 })).toEqual({ out: 'p2', tie: [] });
+    expect(L.finalVote(['p1', 'p2', 'p3'], { p1: 4, p2: 4, p3: 1 })).toEqual({ out: null, tie: ['p1', 'p2'] });
+    expect(L.finalVote(['p1'], {})).toEqual({ out: null, tie: [] });
+  });
+
   test('vote threshold is more than half of the living', () => {
     expect(L.voteThreshold(fixed(Array(10).fill('citizen')))).toBe(6);
     expect(L.voteThreshold(fixed(Array(7).fill('citizen')))).toBe(4);
@@ -195,5 +209,29 @@ describe('built-in scenarios', () => {
     expect(L.detectivePositive('s_capo_suspect')).toBe(true);
     expect(L.detectivePositive('s_capo_don')).toBe(false);
     L.setExtraRoles([]);
+  });
+});
+
+describe('stats and medals', async () => {
+  // @ts-expect-error plain JS module shipped as-is to the static host
+  const S = await import('../../web/tool/stats.js');
+  const now = Date.UTC(2026, 9, 13);
+  const day = 24 * 3600 * 1000;
+
+  test('a game counts once; recent counts follow the dates', () => {
+    let s = S.emptyStats();
+    s = S.recordGame(s, { id: 'g1', at: now - 2 * day, players: 10, nights: 3, scenario: 'auto' });
+    s = S.recordGame(s, { id: 'g1', at: now - 2 * day, players: 10, nights: 3, scenario: 'auto' });
+    s = S.recordGame(s, { id: 'g2', at: now - 20 * day, players: 16, nights: 6, scenario: 'b:takavar' });
+    s = S.recordGame(s, { id: 'g3', at: now - 40 * day, players: 8, nights: 2, scenario: 'b:classic' });
+    expect(s.total).toBe(3);
+    expect(S.recentCounts(s, now)).toEqual({ week: 1, month: 2, total: 3 });
+    const p = Object.fromEntries(S.medalProgress(s, { brand: { name: '' }, roles: [], scenarios: [] }).map((m: { key: string; percent: number }) => [m.key, m.percent]));
+    expect(p).toMatchObject({ first_game: 100, games_10: 30, big_table: 100, long_game: 100, explorer: 100, own_brand: 0 });
+  });
+
+  test('Game Center points stay within Apple’s 1000 limit and ids are unique', () => {
+    expect(S.MEDALS.reduce((a: number, m: { points: number }) => a + m.points, 0)).toBeLessThanOrEqual(1000);
+    expect(new Set(S.MEDALS.map((m: { id: string }) => m.id)).size).toBe(S.MEDALS.length);
   });
 });

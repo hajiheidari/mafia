@@ -357,3 +357,27 @@ export function voteThreshold(players) {
   return Math.floor(alive / 2) + 1;
 }
 
+
+/**
+ * First vote of the day: everyone alive at or above the threshold goes to
+ * the defense, most votes first. Empty when nobody reached it.
+ */
+export function defenseList(players, votes) {
+  const need = voteThreshold(players);
+  return players
+    .filter((p) => p.alive && (votes[p.id] || 0) >= need)
+    .sort((a, b) => (votes[b.id] || 0) - (votes[a.id] || 0))
+    .map((p) => p.id);
+}
+
+/**
+ * Final vote among the accused: the one with the most votes leaves.
+ * { out } when there is a single top, { tie: [ids] } when several share it,
+ * { out: null, tie: [] } when nobody got a vote.
+ */
+export function finalVote(accused, votes) {
+  const top = Math.max(0, ...accused.map((id) => votes[id] || 0));
+  if (top === 0) return { out: null, tie: [] };
+  const best = accused.filter((id) => (votes[id] || 0) === top);
+  return best.length === 1 ? { out: best[0], tie: [] } : { out: null, tie: best };
+}

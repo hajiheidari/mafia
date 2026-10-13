@@ -13,7 +13,7 @@
 // sniper 70). Iranian rosters follow the 10-player decks of mafia.farid.one
 // (11 for pedarkhande); house rules vary, so every role stays editable.
 
-const WORLD = ['en', 'ar', 'ur', 'ru'];
+const WORLD = ['en', 'ar', 'ru'];
 
 export const SCENARIO_ROLES = [
   { id: 's_classic_boss', scenario: 'classic', team: 'mafia', icon: '🎩', kind: 'godfather' },

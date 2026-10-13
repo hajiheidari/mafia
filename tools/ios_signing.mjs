@@ -16,6 +16,7 @@
 import crypto from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const BUNDLE_ID = process.env.IOS_BUNDLE_ID || 'com.espadna.mafia';
 const APP_NAME = process.env.IOS_APP_NAME || 'Mafia God';
@@ -77,6 +78,36 @@ async function api(method, path, body) {
   return text ? JSON.parse(text) : null;
 }
 
+/**
+ * Game Center and iCloud (key-value storage) must be on for the App ID
+ * before the profile is made, or the profile lacks their entitlements
+ * (mobile/ios/App/App/App.entitlements) and the archive is rejected.
+ */
+async function ensureCapabilities(bundleIdId) {
+  const have = await api('GET', `/v1/bundleIds/${bundleIdId}/bundleIdCapabilities?limit=50`);
+  const types = new Set(have.data.map((c) => c.attributes.capabilityType));
+  const wanted = [
+    { capabilityType: 'GAME_CENTER' },
+    { capabilityType: 'ICLOUD', settings: [{ key: 'ICLOUD_VERSION', options: [{ key: 'XCODE_6' }] }] },
+  ];
+  for (const attributes of wanted) {
+    if (types.has(attributes.capabilityType)) continue;
+    try {
+      await api('POST', '/v1/bundleIdCapabilities', {
+        data: {
+          type: 'bundleIdCapabilities',
+          attributes,
+          relationships: { bundleId: { data: { type: 'bundleIds', id: bundleIdId } } },
+        },
+      });
+      console.error(`enabled ${attributes.capabilityType} for ${BUNDLE_ID}`);
+    } catch (e) {
+      // Already on (409) is fine; anything else shows up when the archive is signed.
+      console.error(`capability ${attributes.capabilityType}: ${e.message}`);
+    }
+  }
+}
+
 async function prepare(csrFile, outDir) {
   const csr = readFileSync(csrFile, 'utf8').replace(/-----[^-]+-----/g, '').replace(/\s+/g, '');
   const cert = await api('POST', '/v1/certificates', {
@@ -95,6 +126,8 @@ async function prepare(csrFile, outDir) {
     bundle = created.data;
     console.error(`registered bundle id ${BUNDLE_ID}`);
   }
+
+  await ensureCapabilities(bundle.id);
 
   const profileName = `Mafia CI ${new Date().toISOString().replace(/[:.]/g, '-')}`;
   const profile = await api('POST', '/v1/profiles', {
@@ -152,8 +185,12 @@ function check() {
   console.log('secrets look well-formed');
 }
 
-const [cmd, a, b] = process.argv.slice(2);
-try {
+export { api };
+
+// Run as a command unless imported (tools/gamecenter_setup.mjs uses api()).
+const asCommand = import.meta.url === pathToFileURL(process.argv[1] || '').href;
+const [cmd, a, b] = asCommand ? process.argv.slice(2) : [];
+if (asCommand) try {
   if (cmd === 'check') check();
   else if (cmd === 'prepare') await prepare(a, b);
   else if (cmd === 'cleanup') await cleanup(a, b);
