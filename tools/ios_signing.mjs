@@ -84,7 +84,7 @@ async function api(method, path, body) {
  * (mobile/ios/App/App/App.entitlements) and the archive is rejected.
  */
 async function ensureCapabilities(bundleIdId) {
-  const have = await api('GET', `/v1/bundleIds/${bundleIdId}/bundleIdCapabilities?limit=50`);
+  const have = await api('GET', `/v1/bundleIds/${bundleIdId}/bundleIdCapabilities`);
   const types = new Set(have.data.map((c) => c.attributes.capabilityType));
   const wanted = [
     { capabilityType: 'GAME_CENTER' },
@@ -109,12 +109,6 @@ async function ensureCapabilities(bundleIdId) {
 }
 
 async function prepare(csrFile, outDir) {
-  const csr = readFileSync(csrFile, 'utf8').replace(/-----[^-]+-----/g, '').replace(/\s+/g, '');
-  const cert = await api('POST', '/v1/certificates', {
-    data: { type: 'certificates', attributes: { certificateType: 'DISTRIBUTION', csrContent: csr } },
-  });
-  writeFileSync(join(outDir, 'cert.cer'), Buffer.from(cert.data.attributes.certificateContent, 'base64'));
-
   const ids = await api('GET', `/v1/bundleIds?filter[identifier]=${BUNDLE_ID}&limit=20`);
   let bundle = ids.data.find((b) => b.attributes.identifier === BUNDLE_ID);
   if (!bundle) {
@@ -128,6 +122,13 @@ async function prepare(csrFile, outDir) {
   }
 
   await ensureCapabilities(bundle.id);
+
+  // The certificate comes last, so a failure above never leaves one behind.
+  const csr = readFileSync(csrFile, 'utf8').replace(/-----[^-]+-----/g, '').replace(/\s+/g, '');
+  const cert = await api('POST', '/v1/certificates', {
+    data: { type: 'certificates', attributes: { certificateType: 'DISTRIBUTION', csrContent: csr } },
+  });
+  writeFileSync(join(outDir, 'cert.cer'), Buffer.from(cert.data.attributes.certificateContent, 'base64'));
 
   const profileName = `Mafia CI ${new Date().toISOString().replace(/[:.]/g, '-')}`;
   const profile = await api('POST', '/v1/profiles', {
