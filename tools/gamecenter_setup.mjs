@@ -66,13 +66,13 @@ const BOARD_TEXT = {
   [LEADERBOARDS.week]: {
     ref: 'Games hosted this week',
     'en-US': 'Most games hosted this week',
-    'ar-SA': 'أكثر الألعاب إدارةً هذا الأسبوع',
+    'ar-SA': 'الأكثر إدارةً هذا الأسبوع',
     ru: 'Больше всех игр за неделю',
   },
   [LEADERBOARDS.month]: {
     ref: 'Games hosted this month',
     'en-US': 'Most games hosted this month',
-    'ar-SA': 'أكثر الألعاب إدارةً هذا الشهر',
+    'ar-SA': 'أكثر الألعاب إدارةً هذا الشهر', // ≤ 30 characters
     ru: 'Больше всех игр за месяц',
   },
 };
