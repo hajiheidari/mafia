@@ -643,6 +643,8 @@ function viewSettings() {
   const b = library.brand;
   return `${header(t('settings.title'), 'close-settings', '<span></span>')}
   <main class="pad">
+    ${languagePicker()}
+
     <section class="card brand-card">
       <div class="brand-preview"><img src="${b.logo ? esc(b.logo) : 'icon.svg'}" alt=""></div>
       <form class="form" data-form="brand">
@@ -660,7 +662,6 @@ function viewSettings() {
       </div>
     </section>
 
-    ${languagePicker()}
     ${statsCard()}
     ${backupCard()}
 
