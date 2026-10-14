@@ -1,0 +1,51 @@
+# Fills in the App Store listing (texts in store/listing.json, screenshots in
+# store/screenshots, age rating, price, build, Game Center) through the App
+# Store Connect API, and submits the version for review when asked.
+# Run by hand: Actions → App Store listing → Run workflow.
+name: App Store listing
+
+on:
+  workflow_dispatch:
+    inputs:
+      contact_first_name:
+        description: App Review contact — first name
+        required: false
+      contact_last_name:
+        description: App Review contact — last name
+        required: false
+      contact_phone:
+        description: App Review contact — phone with country code (e.g. +44 7700 900000)
+        required: false
+      contact_email:
+        description: App Review contact — email
+        required: false
+      submit:
+        description: Submit the version for App Review
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  listing:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Fill in the listing
+        env:
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+          IOS_BUNDLE_ID: com.espadna.mafia
+          REVIEW_FIRST_NAME: ${{ inputs.contact_first_name }}
+          REVIEW_LAST_NAME: ${{ inputs.contact_last_name }}
+          REVIEW_PHONE: ${{ inputs.contact_phone }}
+          REVIEW_EMAIL: ${{ inputs.contact_email }}
+          SUBMIT: ${{ inputs.submit }}
+        run: |
+          export VERSION=$(node -p "require('./mobile/package.json').version")
+          node tools/appstore_listing.mjs
