@@ -356,7 +356,7 @@ def page(lang: str) -> str:
 <body>
   <header class="top">
     <div class="wrap">
-      <a class="brand" href="{LANGS[lang]['path']}">🕵️ {t['brand']} <small>{t['by']}</small></a>
+      <a class="brand" href="{LANGS[lang]['path']}"><img class="brand-icon" src="{BASE}icon.png" width="30" height="30" alt=""> {t['brand']} <small>{t['by']}</small></a>
       <nav class="links" aria-label="{t['brand']}">
         <a href="#how">{nav[0]}</a><a href="#roles">{nav[1]}</a><a href="#rules">{nav[2]}</a><a href="#faq">{nav[3]}</a>
       </nav>

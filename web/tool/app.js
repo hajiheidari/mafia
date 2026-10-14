@@ -183,7 +183,7 @@ function applyBrand() {
 function logoHtml(cls = 'logo') {
   return library.brand.logo
     ? `<img class="${cls}-img" src="${esc(library.brand.logo)}" alt="">`
-    : `<span class="${cls}">🕵️</span>`;
+    : `<img class="${cls}-img" src="icon.svg" alt="">`;
 }
 
 /** Shrinks a picked image to at most 320px (PNG keeps transparency) so it fits in local storage. */
@@ -644,7 +644,7 @@ function viewSettings() {
   return `${header(t('settings.title'), 'close-settings', '<span></span>')}
   <main class="pad">
     <section class="card brand-card">
-      <div class="brand-preview">${b.logo ? `<img src="${esc(b.logo)}" alt="">` : '<span>🕵️</span>'}</div>
+      <div class="brand-preview"><img src="${b.logo ? esc(b.logo) : 'icon.svg'}" alt=""></div>
       <form class="form" data-form="brand">
         <label>${t('settings.groupName')}<input name="name" maxlength="30" value="${esc(b.name)}" placeholder="${t('settings.groupPh')}"></label>
         <button class="btn primary small" type="submit">${t('settings.saveName')}</button>
@@ -694,7 +694,7 @@ function viewReveal() {
       return `
       <main class="reveal card-back">
         <button class="back-face" data-action="flip-role">
-          <span class="back-logo">${library.brand.logo ? `<img src="${esc(library.brand.logo)}" alt="">` : '🕵️'}</span>
+          <span class="back-logo"><img src="${library.brand.logo ? esc(library.brand.logo) : 'icon.svg'}" alt=""></span>
           <b class="back-brand">${esc(brandName())}</b>
           <span class="back-name">${esc(p.name)}</span>
           <small>${t('reveal.tap')}</small>

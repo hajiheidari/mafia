@@ -1,23 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
-  <defs>
-    <radialGradient id="bg" cx="50%" cy="38%" r="75%">
-      <stop offset="0" stop-color="#241A4D"/>
-      <stop offset="1" stop-color="#0B0B14"/>
-    </radialGradient>
-    <radialGradient id="moon" cx="38%" cy="35%" r="70%">
-      <stop offset="0" stop-color="#FFFFFF"/>
-      <stop offset=".45" stop-color="#E4DCFF"/>
-      <stop offset="1" stop-color="#A78BFA"/>
-    </radialGradient>
-    <mask id="crescent">
-      <rect width="1024" height="1024" fill="#fff"/>
-      <circle cx="575" cy="365" r="225" fill="#000"/>
-    </mask>
-  </defs>
-  <rect width="1024" height="1024" fill="url(#bg)"/>
-  <circle cx="470" cy="430" r="250" fill="url(#moon)" mask="url(#crescent)"/>
-  <!-- fedora -->
-  <path d="M250 742 Q512 690 774 742 Q790 772 760 782 Q512 742 264 782 Q234 772 250 742Z" fill="#E5484D"/>
-  <path d="M352 742 Q360 600 420 585 Q512 610 604 585 Q664 600 672 742 Q512 715 352 742Z" fill="#E5484D"/>
-  <path d="M356 712 Q512 688 668 712 L670 738 Q512 712 354 738Z" fill="#0B0B14" opacity=".55"/>
+  <!-- Mafia God app icon: a black fedora on red. Source of every icon size (see web/README.md). -->
+  <defs><radialGradient id="bg" cx="50%" cy="42%" r="78%"><stop offset="0" stop-color="#F0585D"/><stop offset="1" stop-color="#8E141B"/></radialGradient></defs><rect width="1024" height="1024" fill="url(#bg)"/><g transform="translate(0 -40) translate(512 640) scale(1.2) translate(-512 -640)">
+  <path d="M330 650 C324 560 338 474 394 434 C428 410 470 402 512 414 C554 402 596 410 630 434 C686 474 700 560 694 650Z" fill="#0B0B14"/>
+  <path d="M328 592 C450 578 574 578 696 592 L692 648 C632 640 572 638 512 638 C452 638 392 640 332 648Z" fill="#F7F3E8"/>
+  <path d="M170 622 C214 650 310 646 512 640 C714 646 810 650 854 622 C874 656 846 704 772 708 C690 694 600 690 512 690 C424 690 334 694 252 708 C178 704 150 656 170 622Z" fill="#0B0B14"/>
+  <path d="M498 424 C506 470 508 530 502 580 L522 580 C516 530 518 470 526 424 C518 420 506 420 498 424Z" fill="rgba(255,255,255,.10)"/></g>
 </svg>

@@ -181,3 +181,5 @@ footer a { color: var(--accent-soft); text-decoration: none; }
 .doc h2 { font-size: 1.2rem; margin-top: 28px; }
 .doc p, .doc li { color: var(--muted); }
 [lang="ar"] .step::before { content: counter(step, arabic-indic); }
+
+.brand-icon { width: 30px; height: 30px; border-radius: 8px; vertical-align: middle; margin-inline-end: 4px; }
