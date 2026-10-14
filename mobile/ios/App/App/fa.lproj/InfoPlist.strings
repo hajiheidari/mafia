@@ -1,2 +1,8 @@
 /* Name under the icon on the home screen. */
 "CFBundleDisplayName" = "گاد مافیا";
+
+/* Camera, when picking the group logo. */
+"NSCameraUsageDescription" = "برای لوگوی گروهتان عکس بگیرید.";
+
+/* Photos, when picking the group logo. */
+"NSPhotoLibraryUsageDescription" = "لوگوی گروهتان را از عکس‌هایتان انتخاب کنید.";

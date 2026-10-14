@@ -1,2 +1,8 @@
 /* Name under the icon on the home screen. */
 "CFBundleDisplayName" = "Mafia God";
+
+/* Camera, when picking the group logo. */
+"NSCameraUsageDescription" = "Сделайте фото для логотипа вашей группы.";
+
+/* Photos, when picking the group logo. */
+"NSPhotoLibraryUsageDescription" = "Выберите логотип вашей группы из фотографий.";
