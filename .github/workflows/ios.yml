@@ -11,9 +11,10 @@
 # → New App) with bundle id com.espadna.mafia. The first run registers the
 # bundle id itself if it does not exist yet.
 #
-# Signing: each run creates a temporary Apple Distribution certificate and
-# App Store profile through the API key (tools/ios_signing.mjs) and revokes
-# them at the end, so no certificate has to be stored anywhere.
+# Signing: one Apple Distribution certificate is made through the API key and
+# kept, encrypted, in Cloudflare Workers KV (tools/ios_signing.mjs). It must
+# never be revoked: Apple then rejects the builds it signed (ITMS-90035).
+# Needs also CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID (as for the web).
 name: iOS (TestFlight)
 
 on:
@@ -103,20 +104,26 @@ jobs:
           npm run www
           npx cap sync ios
 
-      # A fresh Apple Distribution certificate + App Store profile for this
-      # run only (tools/ios_signing.mjs); revoked again in the last step.
-      - name: Temporary signing certificate and profile
+      # The kept Apple Distribution certificate (made on the first run) and
+      # the app's App Store profile (tools/ios_signing.mjs).
+      - name: Signing certificate and profile
         env:
           ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           W="$RUNNER_TEMP/sign"; mkdir -p "$W"
-          /usr/bin/openssl genrsa -out "$W/key.pem" 2048 2>/dev/null
-          /usr/bin/openssl req -new -key "$W/key.pem" -subj "/CN=Mafia CI/O=Espadna/C=US" -out "$W/req.csr"
-          node tools/ios_signing.mjs prepare "$W/req.csr" "$W" > "$W/out.json"
-          cert_id=$(jq -r .certId "$W/out.json"); profile_id=$(jq -r .profileId "$W/out.json")
+          export CF_KV_ID=$(node tools/cf_kv.mjs mafia-ci)
+          set +e; cert_id=$(node tools/ios_signing.mjs load "$W"); status=$?; set -e
+          if [[ $status == 3 ]]; then
+            /usr/bin/openssl genrsa -out "$W/key.pem" 2048 2>/dev/null
+            /usr/bin/openssl req -new -key "$W/key.pem" -subj "/CN=Mafia CI/O=Espadna/C=US" -out "$W/req.csr"
+            cert_id=$(node tools/ios_signing.mjs newcert "$W/req.csr" "$W/key.pem" "$W")
+          elif [[ $status != 0 ]]; then
+            exit $status
+          fi
+          node tools/ios_signing.mjs profile "$cert_id" "$W" > "$W/out.json"
           profile_name=$(jq -r .profileName "$W/out.json"); profile_uuid=$(jq -r .profileUuid "$W/out.json")
-          echo "CERT_ID=$cert_id" >> "$GITHUB_ENV"
-          echo "PROFILE_ID=$profile_id" >> "$GITHUB_ENV"
           echo "PROFILE_NAME=$profile_name" >> "$GITHUB_ENV"
 
           /usr/bin/openssl x509 -inform DER -in "$W/cert.cer" -out "$W/cert.pem"
@@ -191,11 +198,8 @@ jobs:
                  exit 1; }
           echo "Uploaded build ${{ github.run_number }} to TestFlight (it appears there after Apple's processing, ~10–30 min)." >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Revoke the temporary certificate, remove keys
+      # The certificate stays (see the top); only this runner's copy goes.
+      - name: Remove the signing keychain
         if: always()
-        env:
-          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
         run: |
-          if [[ -n "${CERT_ID:-}" ]]; then node tools/ios_signing.mjs cleanup "$CERT_ID" "${PROFILE_ID:-}"; fi
           if [[ -n "${KEYCHAIN:-}" ]]; then security delete-keychain "$KEYCHAIN" || true; fi
-          rm -rf ~/.appstoreconnect "$RUNNER_TEMP/sign"
