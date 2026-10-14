@@ -110,22 +110,19 @@ await step('age rating', async () => {
   if (!decl) throw new Error('no age rating declaration found');
   const patch = (attributes) => api('PATCH', `/v1/ageRatingDeclarations/${decl.id}`, { data: { type: 'ageRatingDeclarations', id: decl.id, attributes } });
   // A party game about a fictional mafia: the story mentions night "shots",
-  // nothing is shown. Everything else is none.
+  // nothing is shown. Everything else is none. Apple wants every question in
+  // one request (the 2025 questions included).
   await patch({
     alcoholTobaccoOrDrugUseOrReferences: 'NONE', contests: 'NONE', gamblingSimulated: 'NONE',
     horrorOrFearThemes: 'NONE', matureOrSuggestiveThemes: 'NONE', medicalOrTreatmentInformation: 'NONE',
     profanityOrCrudeHumor: 'NONE', sexualContentGraphicAndNudity: 'NONE', sexualContentOrNudity: 'NONE',
     violenceCartoonOrFantasy: 'INFREQUENT_OR_MILD', violenceRealistic: 'NONE',
-    violenceRealisticProlongedGraphicOrSadistic: 'NONE', gambling: false, unrestrictedWebAccess: false,
+    violenceRealisticProlongedGraphicOrSadistic: 'NONE', gunsOrOtherWeapons: 'NONE',
+    gambling: false, unrestrictedWebAccess: false, lootBox: false, messagingAndChat: false,
+    parentalControls: false, ageAssurance: false, userGeneratedContent: false, advertising: false,
+    healthOrWellnessTopics: false,
   });
   log('age rating: mild fantasy violence only');
-  // Newer questions (2025); each on its own so an unknown one does not block the rest.
-  for (const [k, v] of Object.entries({
-    lootBox: false, messagingAndChat: false, parentalControls: false, ageAssurance: false,
-    userGeneratedContent: false, advertising: false, healthOrWellnessTopics: false, gunsOrOtherWeapons: 'NONE',
-  })) {
-    await patch({ [k]: v }).catch((e) => log(`  age rating ${k}: ${e.message.split(' → ').pop()}`));
-  }
 });
 
 // ---- the version ----
