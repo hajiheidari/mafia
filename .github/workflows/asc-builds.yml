@@ -1,0 +1,23 @@
+# Shows the state of the latest builds in App Store Connect (run by hand).
+name: App Store builds
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  builds:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - env:
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+          IOS_BUNDLE_ID: com.espadna.mafia
+        run: node tools/asc_builds.mjs
