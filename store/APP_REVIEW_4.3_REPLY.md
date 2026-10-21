@@ -29,10 +29,10 @@ I am an individual developer and tested it myself on my iPhone, in the web versi
 - the language picker first in Settings
 
 5. Standalone or suite
-Standalone. This is my personal developer account; Espadna is my brand name. My only published app is Dorehami: Pantomime & Heads Up, a charades and word-guessing game. I built my other games over the past weeks, one at a time, each with its own code, rules and art, and submitted the finished ones close together. That is why Mafia God, Shah Dozd Vazir, Tiaro and Adadi reached review at the same time. I will space out future submissions. Mafia God is the only tool for a narrator, and the only one with night actions, elimination and voting.
+Standalone. This is my personal developer account; Espadna is my brand name. My only published app is Dorehami: Pantomime & Heads Up, a charades and word-guessing game. I built my other games over the past weeks, one at a time, each with its own code, rules and art, and submitted the finished ones close together. That is why Mafia God, Shah Dozd Vazir, Tiaro, Adadi and Ludo Dosti reached review at the same time. I will space out future submissions. Mafia God is the only tool for a narrator, and the only one with night actions, elimination and voting.
 
 6. Could it be part of another app?
-No. Dorehami is about acting out and guessing words. Shah Dozd Vazir is a short 4-to-6-player game with no narrator, no night and no voting. Tiaro and Adadi are single-player puzzles. Mafia God serves the narrator of a long elimination game.
+No. Dorehami is about acting out and guessing words. Shah Dozd Vazir is a short 4-to-6-player game with no narrator, no night and no voting. Tiaro and Adadi are single-player puzzles, Ludo Dosti is a board game. Mafia God serves the narrator of a long elimination game.
 
 7. Code shared with my other apps
 It is its own web codebase (HTML, CSS, JavaScript) in a Capacitor shell, written for this app. One small native helper (about 160 lines) for Game Center and iCloud key-value storage was written for Mafia God first, and Shah Dozd Vazir uses an adapted copy. Build scripts are shared but are not part of any app. The fonts are open source.
