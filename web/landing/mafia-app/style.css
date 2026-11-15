@@ -183,3 +183,13 @@ footer a { color: var(--accent-soft); text-decoration: none; }
 [lang="ar"] .step::before { content: counter(step, arabic-indic); }
 
 .brand-icon { width: 30px; height: 30px; border-radius: 8px; vertical-align: middle; margin-inline-end: 4px; }
+
+/* store links */
+.stores { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 18px; }
+.store { display: inline-flex; align-items: center; gap: 10px; min-height: 52px; padding: 8px 18px; border-radius: 14px; background: #000; color: #fff; border: 1px solid rgba(255, 255, 255, 0.25); text-decoration: none; text-align: start; }
+.store:hover { border-color: rgba(255, 255, 255, 0.5); }
+.store:focus-visible { outline: 2px solid var(--accent-soft); outline-offset: 3px; }
+.store svg { width: 24px; height: 24px; flex: none; }
+.store span { display: flex; flex-direction: column; line-height: 1.2; }
+.store small { font-size: 0.72rem; color: rgba(255, 255, 255, 0.75); }
+.store b { font-size: 1.05rem; font-weight: 700; }

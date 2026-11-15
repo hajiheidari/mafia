@@ -16,6 +16,32 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent / 'web' / 'landing' / 'maf
 SITE = 'https://espadna.com'
 BASE = '/mafia-app/'
 APP_URL = 'https://mafia.espadna.com'
+# Store links. Persian pages offer Cafe Bazaar; the others a direct APK from
+# this site (web/landing/mafia-app/download/, replace it on each Android release).
+STORES = {
+    'bazaar': 'https://cafebazaar.ir/app/com.espadna.mafia',
+    'appstore': 'https://apps.apple.com/app/mafia-god-party-narrator/id6821851251',
+    'apk': BASE + 'download/mafia-god.apk',
+}
+STORE_TEXT = {
+    'fa': {'bazaar': ('دریافت از', 'کافه‌بازار'), 'appstore': ('دانلود از', 'App Store')},
+    'en': {'appstore': ('Download on the', 'App Store'), 'apk': ('Download for', 'Android (APK)')},
+    'ar': {'appstore': ('حمّله من', 'App Store'), 'apk': ('تنزيل مباشر', 'أندرويد (APK)')},
+    'ru': {'appstore': ('Загрузите в', 'App Store'), 'apk': ('Скачать для', 'Android (APK)')},
+}
+STORE_ICON = {
+    'appstore': '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 18.5h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+    'bazaar': '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l-1.2 11.2a2 2 0 0 1-2 1.8H8.2a2 2 0 0 1-2-1.8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9 10V6a3 3 0 0 1 6 0v4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+    'apk': '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M5 20h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+}
+
+
+def stores(lang: str) -> str:
+    out = []
+    for k, (small, big) in STORE_TEXT[lang].items():
+        extra = ' download' if k == 'apk' else ' target="_blank" rel="noopener"'
+        out.append(f'<a class="store" href="{STORES[k]}"{extra}>{STORE_ICON[k]}<span><small>{small}</small><b>{big}</b></span></a>')
+    return f'<div class="stores">{"".join(out)}</div>'
 
 LANGS = {
     'en': {'dir': 'ltr', 'path': BASE, 'locale': 'en_US', 'label': 'English'},
@@ -378,6 +404,7 @@ def page(lang: str) -> str:
           <a class="btn btn-primary" href="{app}">{t['start']}</a>
           <a class="btn btn-ghost" href="#how">{t['how_btn']}</a>
         </div>
+        {stores(lang)}
         {note}
         <div class="stats">{stats}</div>
       </div>
@@ -414,6 +441,7 @@ def page(lang: str) -> str:
     <section><div class="wrap"><div class="final">
       <h2>{t['final_h']}</h2><p class="sub">{t['final_sub']}</p>
       <div class="cta"><a class="btn btn-primary" href="{app}">{t['start']}</a></div>
+      {stores(lang)}
     </div></div></section>
   </main>
 

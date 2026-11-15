@@ -83,6 +83,10 @@ writeFileSync(join(landing, '_headers'), `/mafia-app/*
   Referrer-Policy: strict-origin-when-cross-origin
 /mafia-app/fonts/*
   Cache-Control: public, max-age=31536000, immutable
+/mafia-app/download/*
+  Content-Type: application/vnd.android.package-archive
+  Content-Disposition: attachment; filename="mafia-god.apk"
+  Cache-Control: no-cache
 `);
 // Paths in files.json and in the redirects are relative to /mafia-app/.
 const landingRedirects = '/en /mafia-app/ 301\n/en/ /mafia-app/ 301\n';
