@@ -1,6 +1,7 @@
 import {
   ROLES, ROLE_ORDER, MIN_PLAYERS, MAX_PLAYERS, UNIQUE_KINDS, TEAM_IDS,
   suggestRoles, fitScenario, minPlayersFor, teamCounts, validateSetup, dealRoles, nightSteps, actorsFor, targetsFor,
+  stepIsDead, holdersFor, introSteps,
   resolveNight, winner, voteThreshold, defenseList, finalVote, teamOf, detectivePositive, setExtraRoles, allRoleIds,
 } from './logic.js';
 import { SCENARIOS as ALL_SCENARIOS, SCENARIO_ROLES } from './scenarios.js';
@@ -160,6 +161,9 @@ function roleOf(id) {
   return { ...r, name: r.name ?? '', desc: r.desc ?? '' };
 }
 const brandName = () => library.brand.name.trim() || t('app.name');
+// Only the group's own name goes on the role cards: the app's name there made
+// players think their role was the godfather.
+const groupName = () => library.brand.name.trim();
 
 function lighten(hex, amount = 0.35) {
   const n = parseInt(hex.slice(1), 16);
@@ -218,7 +222,7 @@ const AUTO_STEPS = ['mafia', 'lecter', 'doctor', 'detective', 'sniper'];
 function stepName(step) {
   if (step === 'mafia') return t('step.mafiaTeam');
   if (ROLES[step] && !AUTO_STEPS.includes(step)) return roleOf(step).name;
-  const actor = actorsFor(step, state.players)[0];
+  const actor = actorsFor(step, state.players)[0] || holdersFor(step, state.players)[0];
   return actor ? roleOf(actor.role).name : roleOf(step).name;
 }
 function stepInfo(step) {
@@ -277,7 +281,9 @@ function undo() {
 const byId = (id) => state.players.find((p) => p.id === id);
 const nameOf = (id) => (id ? esc(byId(id)?.name ?? t('role.unknown')) : '—');
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-const phaseLabel = (phase = state.phase, round = state.round) => t(`phase.${phase}`, { n: round });
+// Round 0 is the introduction day and night; real nights start at 1.
+const phaseLabel = (phase = state.phase, round = state.round) =>
+  (round === 0 ? t(phase === 'night' ? 'phase.introNight' : 'phase.introDay') : t(`phase.${phase}`, { n: round }));
 
 /**
  * History entries keep a key and raw values (player ids, role ids), not
@@ -385,7 +391,7 @@ function scenarioOptions(n) {
   const all = [
     { id: 'auto', name: t('scn.auto'), note: t('scn.auto.note'), min: MIN_PLAYERS },
     ...library.scenarios.map((sc) => ({ id: `my:${sc.id}`, name: `⭐ ${sc.name}`, note: t('scn.mine.note'), min: minPlayersFor(sc.roles) })),
-    ...scenarios().map((sc) => ({ id: `b:${sc.id}`, name: t(`sc.${sc.id}`), note: `${t(`sc.${sc.id}.summary`)} ${t('scn.deck', { n: sc.players })}`, min: minPlayersFor(sc.roles) })),
+    ...scenarios().map((sc) => ({ id: `b:${sc.id}`, name: t(`sc.${sc.id}`), note: `${t(`sc.${sc.id}.summary`)} ${t('scn.deck', { n: sc.players })}`, min: minPlayersFor(sc.roles, { scale: true }) })),
   ];
   return { fit: all.filter((o) => o.min && o.min <= n), more: all.filter((o) => !o.min || o.min > n) };
 }
@@ -695,8 +701,8 @@ function viewReveal() {
       return `
       <main class="reveal card-back">
         <button class="back-face" data-action="flip-role">
-          <span class="back-logo"><img src="${library.brand.logo ? esc(library.brand.logo) : 'icon.svg'}" alt=""></span>
-          <b class="back-brand">${esc(brandName())}</b>
+          <span class="back-logo">${library.brand.logo ? `<img src="${esc(library.brand.logo)}" alt="">` : '🎭'}</span>
+          ${groupName() ? `<b class="back-brand">${esc(groupName())}</b>` : ''}
           <span class="back-name">${esc(p.name)}</span>
           <small>${t('reveal.tap')}</small>
         </button>
@@ -707,7 +713,7 @@ function viewReveal() {
     const mates = state.players.filter((q) => q.id !== p.id && teamOf(q.role) === 'mafia');
     return `
     <main class="reveal ${r.team}">
-      <p class="mini-brand">${logoHtml('mini')}<span>${esc(brandName())}</span></p>
+      ${library.brand.logo || groupName() ? `<p class="mini-brand">${library.brand.logo ? logoHtml('mini') : ''}<span>${esc(groupName())}</span></p>` : ''}
       <p class="muted">${esc(p.name)}</p>
       <div class="big-icon">${r.icon}</div>
       <h2>${esc(r.name)}</h2>
@@ -740,7 +746,7 @@ function playerRow(p) {
   const open = state.menuId === p.id;
   const v = state.vote;
   const accused = v?.accused?.includes(p.id);
-  const canVote = p.alive && state.phase === 'day' && (!v || (v.stage === 'final' && accused));
+  const canVote = p.alive && state.phase === 'day' && state.round > 0 && (!v || (v.stage === 'final' && accused));
   return `
   <li class="item player ${p.alive ? '' : 'dead'}">
     <button class="grow plain" data-action="menu" data-id="${p.id}">
@@ -756,7 +762,7 @@ function playerRow(p) {
   ${open ? `
   <li class="menu">
     ${p.alive
-      ? `${state.phase === 'day' ? `<button class="btn danger small" data-action="vote-out" data-id="${p.id}">${t('game.voteOut')}</button>` : ''}
+      ? `${state.phase === 'day' && state.round > 0 ? `<button class="btn danger small" data-action="vote-out" data-id="${p.id}">${t('game.voteOut')}</button>` : ''}
          <button class="btn ghost small" data-action="kill" data-id="${p.id}">${t('game.kill')}</button>`
       : `<button class="btn ghost small" data-action="revive" data-id="${p.id}">${t('game.revive')}</button>`}
     <button class="btn ghost small" data-action="menu" data-id="${p.id}">${t('game.close')}</button>
@@ -783,17 +789,18 @@ function viewGame() {
     <div class="summary">
       <span class="chip">${t('game.alive', { n: alive.length })}</span>
       ${state.showRoles ? `<span class="chip mafia">${t('roles.chipMafia', { n: mafia })}</span><span class="chip town">${t('roles.chipTown', { n: town })}</span>` : ''}
-      ${state.phase === 'day' ? `<span class="chip">${t('game.threshold', { n: voteThreshold(state.players) })}</span>` : ''}
+      ${state.phase === 'day' && state.round > 0 ? `<span class="chip">${t('game.threshold', { n: voteThreshold(state.players) })}</span>` : ''}
       <button class="btn ghost small" data-action="toggle-roles">${state.showRoles ? t('game.hideRoles') : t('game.showRoles')}</button>
     </div>
-    ${state.phase === 'day' ? voteCard() : ''}
+    ${state.phase === 'day' && state.round > 0 ? voteCard() : ''}
+    ${state.round === 0 ? `<p class="card small-text">${t('game.introHint')}</p>` : ''}
     <ul class="list">${state.players.map(playerRow).join('')}</ul>
     ${state.phase === 'day' && Object.values(state.votes).some((x) => x > 0) ? `<button class="btn ghost small" data-action="clear-votes">${t('game.clearVotes')}</button>` : ''}
     ${state.log.length ? `<details class="log"><summary>${t('game.history', { n: state.log.length })}</summary><ul>${state.log.map(logText).map((l) => `<li><b>${l.at}:</b> ${l.text}</li>`).join('')}</ul></details>` : ''}
     <button class="btn ghost small danger-text" data-action="new-game">${t('game.newGame')}</button>
   </main>
   <footer class="dock">
-    <button class="btn primary block" data-action="start-night">${t('game.startNight', { n: state.round })}</button>
+    <button class="btn primary block" data-action="start-night">${state.round === 0 ? t('game.startIntroNight') : t('game.startNight', { n: state.round })}</button>
   </footer>`;
 }
 
@@ -856,8 +863,41 @@ function morningCard() {
   </section>`;
 }
 
+/** The introduction night: the mafia meet, the other roles confirm theirs; nobody acts. */
+function viewIntroNight() {
+  const n = state.night;
+  const cur = n.steps[n.index];
+  if (!cur) {
+    return `${header(phaseLabel())}
+    <main class="pad night-bg">
+      <section class="card"><p>${t('intro.summary')}</p></section>
+    </main>
+    <footer class="dock">
+      <button class="btn ghost" data-action="night-back">${t('night.back')}</button>
+      <button class="btn primary grow" data-action="end-night">${t('night.morning')}</button>
+    </footer>`;
+  }
+  const mafia = cur.step === 'mafia';
+  const name = mafia ? t('step.mafiaTeam') : roleOf(cur.step).name;
+  const who = mafia
+    ? state.players.filter((p) => teamOf(p.role) === 'mafia').map((p) => `${esc(p.name)} (${esc(roleOf(p.role).name)})`)
+    : [esc(byId(cur.pid).name)];
+  return `${header(t('night.step', { phase: phaseLabel(), i: n.index + 1, n: n.steps.length }))}
+  <main class="pad night-bg">
+    <p class="muted">${t('night.eyes')}</p>
+    <h2>${mafia ? t('intro.mafiaTitle') : t('night.wake', { name: esc(name) })}</h2>
+    <p class="muted">${joinList(who)}</p>
+    <p>${mafia ? t('intro.mafiaHint') : t('intro.roleHint')}</p>
+  </main>
+  <footer class="dock">
+    <button class="btn ghost" data-action="night-back">${n.index === 0 ? t('night.cancel') : t('night.prev')}</button>
+    <button class="btn primary grow" data-action="night-next">${t('night.sleep', { name: esc(name) })} ${arrowNext()}</button>
+  </footer>`;
+}
+
 function viewNight() {
   const n = state.night;
+  if (n.intro) return viewIntroNight();
   const step = n.steps[n.index];
   if (!step) {
     return `${header(phaseLabel())}
@@ -865,7 +905,7 @@ function viewNight() {
       <section class="card">
         <h2>${t('night.summary')}</h2>
         <ul class="plain-list">
-          ${n.steps.map((s) => `<li>${esc(stepName(s))}: <b>${nameOf(n.actions[s])}</b></li>`).join('')}
+          ${n.steps.map((s) => `<li>${esc(stepName(s))}: <b>${stepIsDead(s, state.players) ? t('night.deadShort') : nameOf(n.actions[s])}</b></li>`).join('')}
         </ul>
       </section>
     </main>
@@ -876,6 +916,20 @@ function viewNight() {
   }
   const info = stepInfo(step);
   const name = stepName(step);
+  if (stepIsDead(step, state.players)) {
+    // The role has left: the narrator still calls it so nobody can tell.
+    const gone = holdersFor(step, state.players).map((p) => esc(p.name));
+    return `${header(t('night.step', { phase: phaseLabel(), i: n.index + 1, n: n.steps.length }))}
+    <main class="pad night-bg">
+      <p class="muted">${t('night.eyes')}</p>
+      <h2>${t('night.wake', { name: esc(name) })} <em class="tag accused">${t('night.deadTag')}</em></h2>
+      <p class="card small-text">${t('night.deadCall', { list: joinList(gone) })}</p>
+    </main>
+    <footer class="dock">
+      <button class="btn ghost" data-action="night-back">${n.index === 0 ? t('night.cancel') : t('night.prev')}</button>
+      <button class="btn primary grow" data-action="night-next">${t('night.sleep', { name: esc(name) })} ${arrowNext()}</button>
+    </footer>`;
+  }
   const actors = actorsFor(step, state.players);
   const targets = targetsFor(step, state.players, state.memory);
   const chosen = n.actions[step] ?? null;
@@ -960,7 +1014,7 @@ function startNewDeal() {
     .map((r) => ({ ...ROLES[r] }));
   state.players = dealRoles(state.names, state.counts);
   state.memory = {};
-  state.round = 1;
+  state.round = 0;
   state.phase = 'day';
   state.night = null;
   state.report = null;
@@ -984,7 +1038,7 @@ function scenarioCounts(id, n) {
   }
   if (id.startsWith('b:')) {
     const sc = ALL_SCENARIOS.find((x) => `b:${x.id}` === id);
-    if (sc) return fitScenario(sc.roles, n);
+    if (sc) return fitScenario(sc.roles, n, { scale: true });
   }
   return suggestRoles(n);
 }
@@ -1190,7 +1244,9 @@ const actions = {
     s.menuId = null;
     s.report = null;
     endVote(s);
-    s.night = { steps: nightSteps(s.players), index: 0, actions: {}, touched: {} };
+    s.night = s.round === 0
+      ? { intro: true, steps: introSteps(s.players), index: 0, actions: {}, touched: {} }
+      : { steps: nightSteps(s.players, { withDead: true }), index: 0, actions: {}, touched: {} };
     s.view = 'night';
   }, { undoable: true }),
   pick: (el) => update((s) => {
@@ -1204,6 +1260,14 @@ const actions = {
     s.night.index -= 1;
   }),
   'end-night': () => update((s) => {
+    if (s.night.intro) {
+      addLog('introNight');
+      s.night = null;
+      s.phase = 'day';
+      s.round = 1;
+      s.view = 'game';
+      return;
+    }
     const res = resolveNight(s.players, s.memory, s.night.actions, s.round);
     s.players = res.players;
     s.memory = res.memory;
@@ -1321,6 +1385,7 @@ app.addEventListener('submit', (e) => {
   if (!name) return;
   if (state.names.includes(name)) { alert(t('players.dup')); return; }
   if (state.names.length >= state.playerCount) return;
+  input.value = '';
   update((s) => s.names.push(name));
 });
 

@@ -235,3 +235,45 @@ describe('stats and medals', async () => {
     expect(new Set(S.MEDALS.map((m: { id: string }) => m.id)).size).toBe(S.MEDALS.length);
   });
 });
+
+describe('mafia share, introduction night, roles that are out', () => {
+  test('about a third of the table is mafia', () => {
+    const want: Record<number, number> = { 4: 1, 5: 1, 6: 2, 7: 2, 8: 2, 9: 3, 10: 3, 11: 3, 12: 4, 15: 5, 30: 10 };
+    for (const [n, m] of Object.entries(want)) {
+      expect(L.mafiaCountFor(Number(n)), `n=${n}`).toBe(m);
+      const c = L.suggestRoles(Number(n));
+      expect(L.teamCounts(c).mafia).toBe(m);
+      expect(L.validateSetup(Number(n), c)).toBeNull();
+    }
+    expect(L.suggestRoles(7)).toMatchObject({ godfather: 1, mafia: 1, citizen: 3 });
+  });
+
+  test('ready-made scenarios get plain mafia at bigger tables', () => {
+    L.setExtraRoles(SCENARIO_ROLES);
+    const tk = SCENARIOS.find((x: { id: string }) => x.id === 'takavar');
+    expect(L.teamCounts(L.fitScenario(tk.roles, 10, { scale: true })).mafia).toBe(3);
+    const big = L.fitScenario(tk.roles, 13, { scale: true });
+    expect(L.teamCounts(big).mafia).toBe(4);
+    expect(L.validateSetup(13, big)).toBeNull();
+    expect(L.teamCounts(L.fitScenario(tk.roles, 13)).mafia).toBe(3); // saved scenarios keep their counts
+    L.setExtraRoles([]);
+  });
+
+  test('a role that is out keeps its night step, marked dead', () => {
+    const ps = fixed(['godfather', 'mafia', 'doctor', 'detective', 'citizen', 'citizen', 'citizen']);
+    ps[2].alive = false; // doctor out
+    expect(L.nightSteps(ps)).toEqual(['mafia', 'detective']);
+    expect(L.nightSteps(ps, { withDead: true })).toEqual(['mafia', 'doctor', 'detective']);
+    expect(L.stepIsDead('doctor', ps)).toBe(true);
+    expect(L.stepIsDead('detective', ps)).toBe(false);
+    expect(L.holdersFor('doctor', ps).map((p: P) => p.id)).toEqual(['p3']);
+    // a dead role's step changes nothing in the night
+    const res = L.resolveNight(ps, {}, { mafia: 'p5', detective: 'p1' }, 1);
+    expect(res.report.deaths.map((d: { id: string }) => d.id)).toEqual(['p5']);
+  });
+
+  test('introduction night: mafia team, then each other role', () => {
+    const ps = fixed(['citizen', 'godfather', 'detective', 'mafia', 'doctor', 'citizen']);
+    expect(L.introSteps(ps)).toEqual([{ step: 'mafia' }, { step: 'doctor', pid: 'p5' }, { step: 'detective', pid: 'p3' }]);
+  });
+});

@@ -74,13 +74,10 @@ export const NIGHT_ORDER = ['mafia', 'lecter', 'doctor', 'detective', 'sniper'];
 export const MIN_PLAYERS = 4;
 export const MAX_PLAYERS = 30;
 
+/** About a third of the table is mafia: 1 for 4–5 players, 2 for 6–8, 3 for 9–11, … */
 export function mafiaCountFor(n) {
   if (n <= 5) return 1;
-  if (n <= 7) return 1;
-  if (n <= 10) return 2;
-  if (n <= 14) return 3;
-  if (n <= 20) return 4;
-  return Math.floor(n / 4);
+  return Math.floor(n / 3);
 }
 
 /** Suggested role counts for n players. */
@@ -103,10 +100,13 @@ export function suggestRoles(n) {
 }
 
 /**
- * Fits a saved scenario (role → count) to n players: every role keeps its
- * count and plain citizens fill the rest. Roles the tool does not know are dropped.
+ * Fits a scenario (role → count) to n players: every role keeps its count
+ * and plain citizens fill the rest. Roles the tool does not know are
+ * dropped. With `scale` (the ready-made scenarios), plain mafia are added
+ * while the mafia team is smaller than mafiaCountFor(n), so a bigger table
+ * keeps about a third mafia.
  */
-export function fitScenario(roles, n) {
+export function fitScenario(roles, n, { scale = false } = {}) {
   const counts = {};
   let used = 0;
   for (const [r, c] of Object.entries(roles || {})) {
@@ -114,14 +114,21 @@ export function fitScenario(roles, n) {
     counts[r] = Math.floor(c);
     used += counts[r];
   }
+  if (scale) {
+    const extra = Math.max(0, Math.min(mafiaCountFor(n) - teamCounts(counts).mafia, n - used));
+    if (extra) {
+      counts.mafia = (counts.mafia || 0) + extra;
+      used += extra;
+    }
+  }
   counts.citizen = Math.max(0, n - used);
   return counts;
 }
 
 /** Smallest number of players for which a scenario is playable (0 if never, up to MAX_PLAYERS). */
-export function minPlayersFor(roles) {
+export function minPlayersFor(roles, opts) {
   for (let n = MIN_PLAYERS; n <= MAX_PLAYERS; n++) {
-    if (!validateSetup(n, fitScenario(roles, n))) return n;
+    if (!validateSetup(n, fitScenario(roles, n, opts))) return n;
   }
   return 0;
 }
@@ -204,25 +211,31 @@ export function detectivePositive(role) {
 const KIND_RANK = { mafia: 20, lecter: 25, doctor: 50, detective: 60, sniper: 70 };
 
 /**
- * Which night steps apply this night, given who is alive. A step is a kind
- * ('mafia', 'lecter', 'doctor', 'detective', 'sniper') or, for a role the
- * narrator handles by hand, that role's id. Steps are sorted by rank: the
- * kinds have fixed ranks (above), hand-run roles default to 30 (mafia team)
- * or 80 (others), and any role's `order` overrides the rank of its step.
+ * Which night steps apply this night. A step is a kind ('mafia', 'lecter',
+ * 'doctor', 'detective', 'sniper') or, for a role the narrator handles by
+ * hand, that role's id. Steps are sorted by rank: the kinds have fixed ranks
+ * (above), hand-run roles default to 30 (mafia team) or 80 (others), and any
+ * role's `order` overrides the rank of its step.
+ *
+ * With `withDead`, a role whose players are all out still gets its step: the
+ * narrator calls it as usual so nobody can tell which roles have left
+ * (stepIsDead tells the app to show it as a pretend call). The mafia team's
+ * step stays only while one of them is alive.
  */
-export function nightSteps(players) {
-  const alive = players.filter((p) => p.alive);
+export function nightSteps(players, { withDead = false } = {}) {
+  const pool = withDead ? players : players.filter((p) => p.alive);
+  const withKind = (k) => pool.filter((p) => kindOf(p.role) === k);
   const steps = [];
-  if (alive.some((p) => teamOf(p.role) === 'mafia')) steps.push('mafia');
+  if (players.some((p) => p.alive && teamOf(p.role) === 'mafia')) steps.push('mafia');
   for (const k of ['lecter', 'doctor', 'detective', 'sniper']) {
-    if (aliveWithKind(players, k).length) steps.push(k);
+    if (withKind(k).length) steps.push(k);
   }
   for (const r of allRoleIds()) {
-    if (ROLES[r].night && alive.some((p) => p.role === r)) steps.push(r);
+    if (ROLES[r].night && pool.some((p) => p.role === r)) steps.push(r);
   }
   const rank = (step) => {
     if (KIND_RANK[step] !== undefined) {
-      const actor = step === 'mafia' ? null : aliveWithKind(players, step)[0];
+      const actor = step === 'mafia' ? null : withKind(step)[0];
       return ROLES[actor?.role]?.order ?? KIND_RANK[step];
     }
     return ROLES[step].order ?? (teamOf(step) === 'mafia' ? 30 : 80);
@@ -231,6 +244,34 @@ export function nightSteps(players) {
     .map((step, i) => ({ step, i, r: rank(step) }))
     .sort((a, b) => a.r - b.r || a.i - b.i)
     .map((x) => x.step);
+}
+
+/** True when nobody alive acts for this step (its role has left the game). */
+export function stepIsDead(step, players) {
+  return actorsFor(step, players).length === 0;
+}
+
+/** Players (alive or out) who hold the role(s) of a step. */
+export function holdersFor(step, players) {
+  if (step === 'mafia') return players.filter((p) => teamOf(p.role) === 'mafia');
+  if (NIGHT_ORDER.includes(step)) return players.filter((p) => kindOf(p.role) === step);
+  return players.filter((p) => p.role === step);
+}
+
+/**
+ * The introduction night, after the introduction day: nobody acts. The mafia
+ * team wakes to see each other, then every other player with a role (not a
+ * plain citizen) wakes so the narrator can confirm it. Returns
+ * [{ step: 'mafia' } | { step: role id, pid }], in deal order of the roles.
+ */
+export function introSteps(players) {
+  const steps = [];
+  if (players.some((p) => teamOf(p.role) === 'mafia')) steps.push({ step: 'mafia' });
+  for (const r of allRoleIds()) {
+    if (r === 'citizen' || teamOf(r) === 'mafia') continue;
+    for (const p of players) if (p.role === r) steps.push({ step: r, pid: p.id });
+  }
+  return steps;
 }
 
 /** Players who wake for a step. */

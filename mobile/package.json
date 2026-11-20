@@ -1,7 +1,7 @@
 {
   "name": "mafia-mobile",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Android (Cafe Bazaar) and iOS shell around web/tool (Capacitor).",
   "scripts": {
     "www": "node ../tools/web_build.mjs && node scripts/copy-www.mjs",
